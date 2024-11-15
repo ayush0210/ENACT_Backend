@@ -93,15 +93,80 @@ const authenticateJWTReval = async (req, res) => {
 };
 
 const token = async (req, res) => {
-  let user_id = req.user.id;
-  let {token} = req.body;
-  // insert token into users table where user_id = user_id
+  const user_id = req.user.id;
+  const { token, platform } = req.body;
+  
+  console.log('Request body:', req.body);
+  console.log('Platform:', platform);
+  console.log('Token:', token);
+  
   try {
-    // const db = await pool.getConnection();
-    const [result] = await pool.query('UPDATE users SET android_token = ? WHERE id = ?', [token, user_id]);
-    // db.release();
-    res.status(200).json({ message: 'Token updated successfully!' });
+    let query;
+    let params;
+
+    if (platform.toLowerCase() === 'ios') {
+      console.log('Updating iOS token');
+      query = 'UPDATE users SET ios_token = ?, android_token = NULL WHERE id = ?';
+      params = [token, user_id];
+    } else if (platform.toLowerCase() === 'android') {
+      console.log('Updating Android token');
+      query = 'UPDATE users SET android_token = ?, ios_token = NULL WHERE id = ?';
+      params = [token, user_id];
+    } else {
+      console.log('Invalid platform:', platform);
+      return res.status(400).json({ 
+        error: `Invalid platform: ${platform}. Must be "ios" or "android"` 
+      });
+    }
+
+    console.log('Executing query:', query);
+    console.log('With params:', params);
+
+    const [result] = await pool.query(query, params);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Verify the update
+    const [verification] = await pool.query(
+      'SELECT android_token, ios_token FROM users WHERE id = ?',
+      [user_id]
+    );
+    
+    console.log('Updated tokens:', verification[0]);
+    
+    res.status(200).json({ 
+      message: `${platform} token updated successfully!`,
+      platform: platform,
+      currentTokens: verification[0]
+    });
   } catch (error) {
+    console.error('Error updating token:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Add a function to get user's device tokens
+const getDeviceTokens = async (req, res) => {
+  const user_id = req.user.id;
+  
+  try {
+    const [rows] = await pool.query(
+      'SELECT android_token, ios_token FROM users WHERE id = ?', 
+      [user_id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.status(200).json({ 
+      android_token: rows[0].android_token,
+      ios_token: rows[0].ios_token
+    });
+  } catch (error) {
+    console.error('Error fetching tokens:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -115,5 +180,6 @@ router.post('/register', register);
 router.post('/login', login);
 router.post('/logout', logout);
 router.post('/verify', authenticateJWTReval);
-router.post('/token', authenticateJWT,token);
+router.post('/token', authenticateJWT, token);
+router.get('/device-tokens', authenticateJWT, getDeviceTokens);
 module.exports = router;
