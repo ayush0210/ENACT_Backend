@@ -14,7 +14,7 @@ const authenticateJWT = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(jwtToken, 'your_jwt_secret');
+    const decoded = jwt.verify(jwtToken, process.env.JWT_SECRET || 'your_jwt_secret');
     req.user = decoded; // Attach the decoded token to the request object
     next() // Proceed to the next middleware or route handler
   } catch (error) {
