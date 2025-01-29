@@ -1,19 +1,14 @@
 const express = require('express');
 const axios = require('axios');
 const admin = require('firebase-admin');
-const { GoogleAuth } = require('google-auth-library');
 import serviceAccount from '../key.json';
 import authenticateJWT from './middleware';
 const pool = require('../config/db');
-const auth = new GoogleAuth({
-    keyFile: '../key.json',
-    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
-});
-const fcmSendEndpoint =
-    'https://fcm.googleapis.com/v1/projects/talk-around-town-423916/messages:send';
+
 const router = express.Router();
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    projectId: 'talk-around-town-423916-ec889',
 });
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -34,6 +29,23 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
 function deg2rad(deg) {
     return deg * (Math.PI / 180);
 }
+
+async function validateFCMToken(token) {
+    try {
+      // Attempt to send a test message with dry run option
+      await admin.messaging().send({
+        token: token,
+        data: {},
+      }, true); // true enables dry run mode - no actual message is sent
+      return true;
+    } catch (error) {
+      if (error.errorInfo?.code === 'messaging/invalid-argument' ||
+          error.errorInfo?.code === 'messaging/registration-token-not-registered') {
+        return false;
+      }
+      throw error; // Rethrow other errors
+    }
+  }
 
 router.post('/addLocation', authenticateJWT, async (req, res) => {
     try {
@@ -136,103 +148,226 @@ router.post('/locations', authenticateJWT, async (req, res) => {
     // return res.json(rows);
 });
 
-router.post('/', authenticateJWT, async (req, res) => {
-    // return res.send('Not in range of any point');
-    const client = await auth.getClient();
-    const accessToken = await client.getAccessToken();
-    // const db = await pool.getConnection();
-    let user_id = req.user.id;
-    const { latitude, longitude } = req.body;
-    const [rows] = await pool.query(
-        'SELECT * FROM locations WHERE user_id = ?;',
-        [user_id],
-    );
-
-    const locations = rows.map(row => ({
-        id: row.id,
-        latitude: parseFloat(row.lat),
-        longitude: parseFloat(row.long),
-        latitudeDelta: 0.015, // Assuming a default value
-        longitudeDelta: 0.0121, // Assuming a default value
-        name: row.name,
-        type: row.type,
-    }));
-    // const { latitude, longitude } = req.body;
-    let flag = false;
-    let found_id = -1;
-    let name = 'random';
-    let type = 'random';
-    locations.forEach(location => {
-        const distance = getDistanceFromLatLonInKm(
-            latitude,
-            longitude,
-            location.latitude,
-            location.longitude,
-        );
-        if (distance < 0.1) {
-            console.log('location found!');
-            flag = true;
-            found_id = location.id;
-            name = location.name;
-            type = location.type;
+const sendNotification = async (deviceToken, title, body, data, isIOS) => {
+    try {
+        // Validate token before attempting to send
+        const isValid = await validateFCMToken(deviceToken);
+        if (!isValid) {
+            // Remove invalid token from database
+            const query = isIOS 
+                ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
+                : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
+            
+            await pool.query(query, [deviceToken]);
+            throw new Error('Invalid FCM token - removed from database');
         }
-    });
-    if (!flag) {
-        return res.send('Not in range of any point');
-    }
-    const [notifs] = await pool.query(
-        `
-    SELECT COUNT(*) AS notification_count
-  FROM notifications
-  WHERE user_id = ? AND loc_id = ?
-  AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 1 DAY
-  AND timestamp < CURRENT_TIMESTAMP;
-  `,
-        [user_id, found_id],
-    );
-    // console.log(notifs);
-    if (notifs[0].notification_count > 0) {
-        // db.release();
-        console.log('Already sent a notification for this location today.');
-        return res.status(200).send('Already sent');
-    }
-    // get android token from users table
-    const [result] = await pool.query(
-        'SELECT android_token FROM users WHERE id = ?',
-        [user_id],
-    );
-    console.log('trying to send message...');
-    const androidToken = result[0].android_token;
-    const messagePayload = {
-        message: {
-            token: androidToken,
-            notification: {
-                title: `You have arrived at ${name}`,
-                body: `${type}: Click here for some tips to make the most of your visit.`,
-            },
-        },
-    };
-    axios
-        .post(fcmSendEndpoint, messagePayload, {
-            headers: {
-                Authorization: `Bearer ${accessToken.token}`,
-                'Content-Type': 'application/json',
-            },
-        })
-        .then(async response => {
-            console.log('Message sent successfully:', response.data);
-            // Update the count in the database
-            const [result] = await pool.query(
-                `INSERT INTO notifications (user_id, loc_id, device_id)
-    VALUES (?, ?, ?);`,
-                [user_id, found_id, androidToken],
-            );
-            console.log('Notification inserted successfully:');
-        })
-        .catch(error => {
-            console.error('Error sending message:', error.response.data);
-        });
-    return res.status(200).send("Send notification, let's see if it works");
-});
 
+        const message = {
+            token: deviceToken,
+            notification: {
+                title,
+                body,
+            },
+            data: data || {},
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'location-tips',
+                    priority: 'high',
+                    defaultSound: true,
+                }
+            },
+            apns: isIOS ? {
+                payload: {
+                    aps: {
+                        alert: {
+                            title,
+                            body,
+                        },
+                        sound: 'default',
+                        badge: 1,
+                        'content-available': 1,
+                        'mutable-content': 1,
+                    },
+                },
+                headers: {
+                    'apns-priority': '10',
+                }
+            } : undefined
+        };
+
+        console.log('Sending notification:', {
+            platform: isIOS ? 'iOS' : 'Android',
+            tokenPrefix: deviceToken.substring(0, 10),
+            title,
+        });
+
+        const response = await admin.messaging().send(message);
+        console.log('Notification sent successfully:', response);
+        return response;
+    } catch (error) {
+        console.error('Error sending notification:', error);
+        if (error.errorInfo?.code === 'messaging/registration-token-not-registered') {
+            // Token is no longer valid, remove it from database
+            const query = isIOS 
+                ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
+                : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
+            
+            await pool.query(query, [deviceToken]);
+            console.log('Removed invalid token from database');
+        }
+        throw error;
+    }
+};
+
+const notificationCache = new Map();
+
+router.post('/', authenticateJWT, async (req, res) => {
+    const requestId = `${req.user.id}-${Date.now()}`;
+    
+    try {
+        let user_id = req.user.id;
+        const { latitude, longitude } = req.body;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({ error: 'Latitude and longitude are required' });
+        }
+
+        // Check if there's a pending request for this user
+        if (notificationCache.has(user_id)) {
+            const lastRequest = notificationCache.get(user_id);
+            if (Date.now() - lastRequest < 5000) { // 5 second cooldown
+                return res.status(200).json({ 
+                    message: 'Request throttled',
+                    status: 'throttled'
+                });
+            }
+        }
+        
+        notificationCache.set(user_id, Date.now());
+
+        // Get user's locations
+        const [rows] = await pool.query(
+            'SELECT * FROM locations WHERE user_id = ?;',
+            [user_id],
+        );
+
+        const locations = rows.map(row => ({
+            id: row.id,
+            latitude: parseFloat(row.lat),
+            longitude: parseFloat(row.long),
+            name: row.name,
+            type: row.type,
+        }));
+
+        // Find nearby location
+        let nearbyLocation = null;
+        for (const location of locations) {
+            const distance = getDistanceFromLatLonInKm(
+                latitude,
+                longitude,
+                location.latitude,
+                location.longitude,
+            );
+            if (distance < 0.1) {
+                nearbyLocation = location;
+                break;
+            }
+        }
+
+        if (!nearbyLocation) {
+            return res.status(200).json({ 
+                message: 'Not in range of any point',
+                status: 'out_of_range'
+            });
+        }
+
+        // Check for recent notifications
+        const [notifs] = await pool.query(
+            `SELECT COUNT(*) AS notification_count
+             FROM notifications
+             WHERE user_id = ? AND loc_id = ?
+             AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 5 MINUTE;`,
+            [user_id, nearbyLocation.id],
+        );
+
+        if (notifs[0].notification_count > 0) {
+            return res.status(200).json({ 
+                message: 'Notification cooldown active',
+                status: 'cooldown'
+            });
+        }
+
+        // Get user's device token
+        const [result] = await pool.query(
+            'SELECT android_token, ios_token FROM users WHERE id = ?',
+            [user_id],
+        );
+
+        const deviceToken = result[0].ios_token || result[0].android_token;
+        const isIOS = !!result[0].ios_token;
+
+        if (!deviceToken) {
+            return res.status(400).json({ 
+                message: 'No device token found',
+                status: 'no_token'
+            });
+        }
+
+        // Get tips
+        const [tips] = await pool.query(
+            'SELECT title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
+            [nearbyLocation.type]
+        );
+
+        const tipsText = tips.map(tip => 
+            `${tip.title}\n${tip.description}`
+        ).join('\n\n');
+
+        // Send notification with unique identifier
+        const notificationId = `${user_id}-${nearbyLocation.id}-${Date.now()}`;
+        await sendNotification(
+            deviceToken,
+            `You have arrived at ${nearbyLocation.name}`,
+            `${nearbyLocation.type} Tips:\n\n${tipsText}`,
+            {
+                notificationId,
+                locationType: nearbyLocation.type,
+                locationId: nearbyLocation.id.toString(),
+                locationName: nearbyLocation.name
+            },
+            isIOS
+        );
+
+        // Record notification
+        await pool.query(
+            `INSERT INTO notifications (user_id, loc_id, device_id)
+             VALUES (?, ?, ?);`,
+            [user_id, nearbyLocation.id, deviceToken],
+        );
+
+        return res.status(200).json({
+            message: "Notification sent successfully",
+            status: 'success',
+            location: nearbyLocation.name,
+            type: nearbyLocation.type,
+            notificationId
+        });
+
+    } catch (error) {
+        console.error('Error in location check:', error);
+        return res.status(500).json({ 
+            error: 'Internal Server Error',
+            details: error.message 
+        });
+    } finally {
+        // Clean up old cache entries
+        const now = Date.now();
+        for (const [key, timestamp] of notificationCache.entries()) {
+            if (now - timestamp > 60000) { // Remove entries older than 1 minute
+                notificationCache.delete(key);
+            }
+        }
+    }
+});
 module.exports = router;

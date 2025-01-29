@@ -1,74 +1,81 @@
-const pool = require('../config/db');
 import express from 'express';
+import { OpenAI } from 'openai';
+import pool from '../config/db';
+
 const router = express.Router();
-import fs from 'fs/promises';
-async function readJsonFile(filePath) {
-    try {
-        const data = await fs.readFile(filePath, 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        console.error('Error reading JSON file:', error);
-        throw error;
-    }
-}
-
-// Function to insert data into MySQL
-async function insertDataIntoMySQL(data) {
-    //   const connection = await mysql.createConnection(dbConfig);
-
-    try {
-        for (const item of data) {
-            for (const tip of item.tips) {
-                await pool.query(
-                    'INSERT INTO tips (type, title, description) VALUES (?, ?, ?)',
-                    [item.locationName, item.title, tip],
-                );
-            }
-            console.log('cool down')
-            // insert a cool down of 3 seconds
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-    } catch (error) {
-        console.error('Error inserting data:', error);
-        throw error;
-    } finally {
-        // await connection.end();
-        console.log('Data inserted successfully');
-    }
-}
-
-// API endpoint to trigger the data insertion
-router.post('/insert-data', async (req, res) => {
-    try {
-        const jsonData = await readJsonFile('./tips.json');
-        await insertDataIntoMySQL(jsonData);
-        res.status(200).json({ message: 'Data inserted successfully' });
-    } catch (error) {
-        res.status(500).json({
-            error: 'An error occurred while inserting data',
-        });
-    }
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 router.post('/get-tips', async (req, res) => {
     try {
-        const { type } = req.body;
-        const [rows] = await pool.query('SELECT * FROM tips WHERE type = ?', [
-            type,
-        ]);
-        const tips = [];
-        const randomIndices = [];
-        while (randomIndices.length < 3) {
-            const randomIndex = Math.floor(Math.random() * rows.length);
-            if (!randomIndices.includes(randomIndex)) {
-                randomIndices.push(randomIndex);
-                tips.push(rows[randomIndex]);
+        const { type, AI } = req.body;
+        const [rows] = await pool.query('SELECT * FROM tips WHERE type = ?', [type]);
+
+        if (!AI) {
+            const tips = [];
+            const randomIndices = [];
+            while (randomIndices.length < 3 && randomIndices.length < rows.length) {
+                const randomIndex = Math.floor(Math.random() * rows.length);
+                if (!randomIndices.includes(randomIndex)) {
+                    randomIndices.push(randomIndex);
+                    tips.push(rows[randomIndex]);
+                }
             }
+            return res.status(200).json(tips);
+        } else {
+            const prompt = rows
+                .map(row => `Tip: ${row.title}\nDescription: ${row.description}`)
+                .join('\n\n');
+
+            const completion = await openai.chat.completions.create({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are an assistant that generates helpful tips for parents based on existing data. Respond with 3 new tips in JSON format.',
+                    },
+                    {
+                        role: 'user',
+                        content: `Generate 3 new tips based on the following data:\n\n${prompt}\n\nRespond with 3 tips in this JSON format:\n[{"id": 1, "type": "Generated", "title": "Tip Title 1", "description": "Tip description 1"},{"id": 2, "type": "Generated", "title": "Tip Title 2", "description": "Tip description 2"},{"id": 3, "type": "Generated", "title": "Tip Title 3", "description": "Tip description 3"}]`,
+                    },
+                ],
+                max_tokens: 500,
+                n: 1,
+            });
+
+            const assistantMessage = completion.choices[0].message.content;
+            let generatedTips;
+
+            try {
+                // Use a regular expression to extract JSON from the response
+                const jsonMatch = assistantMessage.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                    generatedTips = JSON.parse(jsonMatch[0]);
+                } else {
+                    throw new Error('No JSON array found in the response');
+                }
+
+                // Ensure we have exactly 3 tips
+                if (!Array.isArray(generatedTips) || generatedTips.length !== 3) {
+                    throw new Error('Response does not contain exactly 3 tips');
+                }
+
+                // Update the IDs to continue from the existing tips
+                generatedTips = generatedTips.map((tip, index) => ({
+                    ...tip,
+                    id: rows.length + index + 1
+                }));
+
+            } catch (error) {
+                console.error('Error parsing JSON:', error);
+                console.error('Raw response:', assistantMessage);
+                return res.status(500).json({ message: 'Error generating tips', error: error.message });
+            }
+
+            return res.status(200).json(generatedTips);
         }
-        return res.status(200).json(tips);
-    } catch (e) {
-        console.log('error in fetching tips', e);
-        return res.status(500).json({ message: 'No tips found' });
+    } catch (error) {
+        console.error('Error in fetching tips', error);
+        return res.status(500).json({ message: 'No tips found', error: error.message });
     }
 });
 
