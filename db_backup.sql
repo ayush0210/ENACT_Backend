@@ -1,8 +1,8 @@
--- MySQL dump 10.13  Distrib 8.3.0, for macos14.2 (arm64)
+-- MySQL dump 10.13  Distrib 8.0.41, for Linux (x86_64)
 --
 -- Host: localhost    Database: tat
 -- ------------------------------------------------------
--- Server version	8.3.0
+-- Server version	8.0.41-0ubuntu0.22.04.1
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -16,6 +16,63 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
+-- Table structure for table `children`
+--
+
+DROP TABLE IF EXISTS `children`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `children` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `nickname` varchar(50) NOT NULL,
+  `date_of_birth` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `children_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `children`
+--
+
+LOCK TABLES `children` WRITE;
+/*!40000 ALTER TABLE `children` DISABLE KEYS */;
+INSERT INTO `children` VALUES (1,85,'Anish','2023-02-01','2024-12-02 22:48:32','2024-12-02 22:48:32'),(2,85,'Child_2','2024-01-01','2024-12-02 22:48:32','2024-12-02 22:48:32'),(3,86,'Vedant','2023-10-01','2024-12-02 22:55:59','2024-12-03 00:10:18'),(4,86,'Arpan','2023-05-01','2024-12-02 22:55:59','2024-12-03 00:00:15'),(5,86,'Stavan','2023-03-01','2024-12-03 00:05:00','2024-12-03 00:05:00'),(6,87,'Ay','2024-01-01','2024-12-03 23:32:40','2024-12-03 23:32:40'),(7,87,'Ay','2024-01-01','2024-12-03 23:32:40','2024-12-03 23:32:40'),(8,56,'Ty','2021-10-01','2024-12-11 16:10:13','2024-12-11 16:10:13'),(9,56,'Elise','2023-10-01','2024-12-11 16:10:31','2024-12-11 16:10:31'),(10,88,'Devesh','2023-02-01','2024-12-23 13:48:27','2024-12-23 13:48:27'),(11,89,'Ankit','2024-02-01','2025-01-06 14:43:33','2025-01-06 14:43:33'),(12,89,'Pasant','2020-03-01','2025-01-06 14:43:33','2025-01-06 14:43:33'),(13,90,'vedant','2025-01-01','2025-01-17 14:04:39','2025-01-17 14:04:39'),(14,90,'anish','2019-01-01','2025-01-17 14:04:39','2025-01-17 14:04:39'),(15,91,'Vedant','2024-02-01','2025-01-20 20:37:41','2025-01-20 20:37:41'),(16,91,'Anish','2023-04-01','2025-01-20 20:37:41','2025-01-20 20:37:41'),(17,1,'Vedant','2020-03-01','2025-01-20 22:26:32','2025-01-20 22:26:32'),(18,92,'Kid1','2020-01-01','2025-01-22 20:16:08','2025-01-22 20:16:08'),(19,92,'Kid2','2022-01-01','2025-01-22 20:16:08','2025-01-22 20:16:08'),(20,93,'stavan','2022-01-01','2025-01-23 15:56:41','2025-01-23 15:56:41'),(21,93,'hemant','2021-12-01','2025-01-23 15:56:41','2025-01-23 15:57:18'),(22,94,'S','2023-09-01','2025-01-26 18:46:36','2025-01-26 18:46:55'),(23,94,'Ae','2025-09-01','2025-01-26 18:47:05','2025-01-26 18:47:05'),(24,95,'priyanshu','2018-06-01','2025-01-26 19:55:30','2025-01-26 19:55:30'),(25,95,'anish','2020-08-01','2025-01-26 19:55:30','2025-01-26 19:55:30'),(26,96,'ankit','2025-06-01','2025-01-28 19:37:19','2025-01-28 19:37:19'),(27,97,'anish','2021-06-01','2025-02-04 22:46:05','2025-02-04 22:46:05'),(28,88,'Michael','2023-03-01','2025-02-06 04:17:07','2025-02-06 04:17:07'),(29,1,'claude','2016-01-01','2025-02-06 18:15:55','2025-02-06 18:15:55'),(30,98,'Kedar','2023-01-01','2025-02-06 20:14:10','2025-02-06 20:14:10'),(31,98,'Ruchir','2025-01-01','2025-02-06 20:14:10','2025-02-06 20:14:10');
+/*!40000 ALTER TABLE `children` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `children_backup`
+--
+
+DROP TABLE IF EXISTS `children_backup`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `children_backup` (
+  `id` int NOT NULL DEFAULT '0',
+  `user_id` int NOT NULL,
+  `age` int NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `nickname` varchar(50) NOT NULL,
+  `date_of_birth` date NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `children_backup`
+--
+
+LOCK TABLES `children_backup` WRITE;
+/*!40000 ALTER TABLE `children_backup` DISABLE KEYS */;
+/*!40000 ALTER TABLE `children_backup` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `locations`
 --
 
@@ -27,13 +84,13 @@ CREATE TABLE `locations` (
   `user_id` int NOT NULL,
   `lat` decimal(10,8) NOT NULL,
   `long` decimal(11,8) NOT NULL,
-  `type` varchar(255) NOT NULL,
-  `name` varchar(255) NOT NULL,
+  `type` varchar(255) NOT NULL DEFAULT 'default',
+  `name` varchar(255) NOT NULL DEFAULT 'Home Location',
   `desc` text,
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `locations_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=147 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -42,7 +99,7 @@ CREATE TABLE `locations` (
 
 LOCK TABLES `locations` WRITE;
 /*!40000 ALTER TABLE `locations` DISABLE KEYS */;
-INSERT INTO `locations` VALUES (1,1,29.64686833,-82.33709333,'Library','Norman Hall','My workplace'),(2,1,29.64421833,-82.33938667,'Grocery Store','Road next to Norman hall','Used for demo'),(3,1,29.61720000,-82.37770000,'Grocery Store','BLVD','Home, or atleast it used to be.'),(4,1,29.65355730,-82.33884040,'Grocery Store','Accura','LMAO'),(5,1,29.64501380,-82.34794590,'Grocery Store','Welcome Center','None'),(6,1,29.66702730,-82.31367110,'Grocery Store','Lmao','Resa'),(7,1,29.62305120,-82.37971880,'Grocery Store','TJs','lol'),(8,1,29.64882840,-82.34061960,'Restaurant','Lityl hLA','Lmao');
+INSERT INTO `locations` VALUES (11,5,38.98064000,-94.62140990,'Bus/Walk','Home','Home'),(12,5,38.98064000,-94.62140990,'Bus/Walk','Home','Home'),(13,5,38.98064000,-94.62140990,'Grocery Store','Home','Home'),(14,6,29.61685040,-82.37814390,'Library','Hhh','Jjhj'),(15,5,38.98064000,-94.62140990,'Bus/Walk','Home','Home'),(16,6,29.61705720,-82.38015860,'Library','Bhh','Hhhh'),(17,6,29.63593260,-82.36981480,'Park','Florida M','Florida'),(18,6,29.61877890,-82.37872700,'Bus/Walk','Bhh','Nhjj'),(19,5,38.98064000,-94.62140990,'Bus/Walk','Home','Home'),(20,5,38.98064000,-94.62140990,'Bus/Walk','Home','Home'),(21,5,38.98064000,-94.62140990,'Library','Home','Home'),(23,5,38.92526940,-94.58587290,'Restaurant','Lunch place','Lunch place'),(24,5,39.09239800,-94.57975320,'Restaurant','G','G'),(25,7,29.67366510,-82.32978440,'Grocery Store','Ward\'s','Gotta go there in 10 minutes!'),(26,7,29.64577970,-82.33986350,'Bus/Walk','Cypress Hall','Near work'),(27,8,29.67366510,-82.32978440,'Grocery Store','dddd','ddd'),(30,9,29.64805870,-82.34374620,'Library','Marston Lib','Notification '),(31,10,29.64501380,-82.34794590,'Waiting Room','Welcome center','Random'),(32,10,29.64805870,-82.34374620,'Library','Marston Lib','Hangout spot'),(33,11,29.64805870,-82.34374620,'Library','Hangout spot','Jk'),(34,1,29.64805870,-82.34374620,'Library','Marston','Hangout spot'),(35,1,29.64501380,-82.34794590,'Waiting Room','Welcome','Center'),(36,13,29.64805870,-82.34374620,'Library','Lib','Lmao'),(37,1,29.64773900,-82.33907860,'Grocery Store','Playa','Bowl'),(38,1,29.64994130,-82.34868160,'Library','jjjff','aaa'),(39,1,29.63995290,-82.34267420,'Bus/Walk','dddd','ddd'),(40,1,29.64632120,-82.34778160,'Park','park','surprise'),(41,5,39.97664860,-83.01129530,'Grocery Store','Lucky\'s','Test test'),(42,1,29.65053740,-82.32483960,'Restaurant','WB','Desc'),(43,1,29.62731180,-82.38823940,'Grocery Store','Walmart','Kids'),(44,1,29.61467790,-82.37677990,'Waiting Room','Brewery','Hehe'),(45,1,29.61693600,-82.37770780,'Waiting Room','Pool','Pool'),(46,1,29.61700100,-82.37856000,'Bus/Walk','Hhh','Uuu'),(47,5,29.67319190,-82.38810160,'Restaurant','Leonardo\'s','Pizza'),(48,5,29.67319190,-82.38810160,'Restaurant','Leonardo\'s ','Pizza'),(49,5,29.68305870,-82.39130960,'Other\'s Home','Home','Home'),(50,5,29.68305870,-82.39130960,'Other\'s Home','Home','Home'),(51,5,29.68302740,-82.39164630,'Other\'s Home','Home','Home'),(52,5,29.64641650,-82.33827860,'Library','Work','Work'),(56,5,29.64641650,-82.33827860,'Library','Work','Wirk'),(91,56,29.64700420,-82.33805860,'Library','Norman ','Library'),(98,65,29.60501270,-82.37283330,'Grocery Store','Publix ','My grocery store'),(99,69,29.66401640,-82.32577480,'Grocery Store','Publix is a good option ','Grocery store'),(116,85,29.61733080,-82.37886030,'default','Home Location',NULL),(117,86,29.61733080,-82.37886030,'default','Home Location',NULL),(118,86,29.66400510,-82.30078140,'Grocery Store','Walmart','Walmart'),(119,87,29.61733080,-82.37886030,'default','Home Location',NULL),(120,86,29.61693600,-82.37770780,'Bus/Walk','Pool','Pool'),(121,88,34.17611330,-118.84877930,'default','Home Location',NULL),(122,88,40.79298030,-74.04231360,'Grocery Store','Grocery','gross'),(123,89,27.54247640,80.01017240,'default','Home Location',NULL),(124,89,28.43994150,-81.47647150,'Grocery Store','Grocery ','Grocery'),(125,90,29.61720360,-82.37769980,'default','Home Location',NULL),(126,90,29.62305120,-82.37971880,'Grocery Store','Eeee','Fff'),(127,91,29.61503120,-82.35573480,'default','Home Location',NULL),(128,1,29.62159700,-82.37779770,'Grocery Store','Blaze','Aaa'),(129,1,28.50699410,-81.31298750,'Park','Park','Park'),(130,88,40.79298030,-74.04231360,'Grocery store','Grocery Store','Local grocery store'),(131,88,29.61693600,-82.37770780,'Bus/Walk','Pool','Pool'),(132,92,40.71280000,-74.00600000,'default','Home Location',NULL),(133,92,40.71280000,-74.00600000,'Park','Central Park','A large urban park in Manhattan, New York City'),(134,88,29.65355730,-82.33884040,'Grocery Store','G','G'),(135,93,29.61733080,-82.37886030,'default','Home Location',NULL),(136,1,29.61732360,-82.38060390,'Park','Zoo','Garden '),(137,1,29.61556311,-82.37996381,'Library','Sunshine Park','Local community park'),(138,94,29.61733080,-82.37886030,'default','Home Location',NULL),(139,95,29.61733080,-82.37886030,'default','Home Location',NULL),(140,95,29.62731180,-82.38823940,'Bus/Walk','grocey','grocery'),(141,96,29.61733080,-82.37886030,'default','Home Location',NULL),(142,97,29.64805870,-82.34374620,'default','Home Location',NULL),(143,88,29.64624800,-82.34295000,'Bus/Walk','Bus','Bus stand'),(144,88,29.62731180,-82.38823940,'Grocery Store','grocery','walmart'),(145,98,29.61733080,-82.37886030,'default','Home Location',NULL),(146,98,29.64773900,-82.33907860,'Grocery Store','Playa','something');
 /*!40000 ALTER TABLE `locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -71,7 +128,7 @@ CREATE TABLE `notifications` (
 
 LOCK TABLES `notifications` WRITE;
 /*!40000 ALTER TABLE `notifications` DISABLE KEYS */;
-INSERT INTO `notifications` VALUES (1,'2024-06-26 17:36:25',1,'elQCf_e1T_mr4dFmhXYY6J:APA91bHaKb_ALiTXL3zBhlledhcqqG-ppgLcrowepJWTfS7quEYTwNLhyKrkKgERydGj2jq0L3ysqsvr6973L0SiNVzLhrQsCYARKipKgos2zFbBoV64m6Q_5O8cjgSNr-kmBb33rieM');
+INSERT INTO `notifications` VALUES (1,'2024-08-01 15:05:54',37,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv'),(1,'2024-08-01 15:07:50',34,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv'),(5,'2024-08-02 01:21:22',41,'eghayzP9Rx6aFYawTuJL7k:APA91bG09FMNP7xXIxdFRgImx-avQ5u1I-PS7ffrB3fh3ptaFRN_Kn7Oa3VyI1HWs0b4zwXjyCFlnCT5kU3S-muJbrU1fmZMg4ycEgF6vdtmBUg5jyu0vkXRnWp8w8TY0q54OEFOeDOS'),(1,'2024-08-07 16:17:38',34,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv'),(1,'2024-08-09 16:20:10',35,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv'),(1,'2024-08-09 16:22:08',42,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv'),(1,'2024-08-20 02:26:20',46,'e7lOs1UGSpuL1Lq1MWXL1W:APA91bGqmCkq82bkeeZ9ID3XtTc3-oaTKL5xOgfc7gDX6oCrIfgG1v99yXL583f9Vo7GKzDSdxZXyaQe9eFtSrRE6Vq0uTcgeTmjj3r5M7ELSDsJ193bi4jNmhmr5zMlDMejDm2FJsYY'),(1,'2024-08-22 03:54:50',46,'e7lOs1UGSpuL1Lq1MWXL1W:APA91bGqmCkq82bkeeZ9ID3XtTc3-oaTKL5xOgfc7gDX6oCrIfgG1v99yXL583f9Vo7GKzDSdxZXyaQe9eFtSrRE6Vq0uTcgeTmjj3r5M7ELSDsJ193bi4jNmhmr5zMlDMejDm2FJsYY'),(5,'2024-08-26 15:17:58',51,'fNRBm5u3TPyXpFhRijfIy8:APA91bEey59FDFxFlBvecYUK6muQicfBLSwW-Yyk6x9bRy-_0ZzwCqSFNmY6oTo0iXX6p7bzqtT_8CSueP0nSeF9bGCdRlrVaWLlzBOQ05DW36L_svksYHl6JEXKB_myB_1jaWXNirNC'),(5,'2024-08-27 19:47:32',52,'fNRBm5u3TPyXpFhRijfIy8:APA91bEey59FDFxFlBvecYUK6muQicfBLSwW-Yyk6x9bRy-_0ZzwCqSFNmY6oTo0iXX6p7bzqtT_8CSueP0nSeF9bGCdRlrVaWLlzBOQ05DW36L_svksYHl6JEXKB_myB_1jaWXNirNC'),(5,'2024-09-12 13:44:51',52,'fNRBm5u3TPyXpFhRijfIy8:APA91bEey59FDFxFlBvecYUK6muQicfBLSwW-Yyk6x9bRy-_0ZzwCqSFNmY6oTo0iXX6p7bzqtT_8CSueP0nSeF9bGCdRlrVaWLlzBOQ05DW36L_svksYHl6JEXKB_myB_1jaWXNirNC'),(5,'2024-09-12 14:24:29',56,'e1xmOq0ERyOX_myf5QDu7t:APA91bG1PlUGeuKENLnjyEvThXCadJtzNCK-Fcvs6RMGxZvow22xpfxyEs3xh1E9At1ACJ_A5Kb4Gdg1cXieROLXahaT2PX6ofChr_9RPdliLdw7MkobO3hz5mqTr_vOak2gWZKrXLiQ'),(56,'2025-01-21 19:55:50',91,'cPAnnI7n7UXShHonR2UK_c:APA91bF_VLbaXUzc-zl9BFxPUzzsNpYDNLOhJFjxuyMgNHiwn90zhQ4zT2rIIncRXwKjyGQDZupHwQryd_prf2ofKxT7BIy4PLPs1i1na3g-zO2rmi4DBkA'),(1,'2025-01-22 03:22:28',45,'caepGd23gERvugtnf4t2o3:APA91bF4x4nbnz8AmPYYzmujKZEy1YBRFt3LuL8rHykTXg2j6yJdOz7ETM9Dq-OC_nxOvZQnbjjoZaY5dZVYUsA8waUXciomImlIXuMkh297YYcevC9wM40'),(56,'2025-02-06 17:59:12',91,'dOQp_GA6L0Wqhwslu6pliM:APA91bHGJOvF8_x1FRMY2snO9dFWMxQuFj6TSKlmUs8oe8GQdh8rssPTAe-ALnJqD8kodOHUvmzDfqu9jRcQkihkTkKHQhbGHlfKqqzNzHEt8GriZaZL7G4'),(56,'2025-02-06 18:13:26',91,'dOQp_GA6L0Wqhwslu6pliM:APA91bHGJOvF8_x1FRMY2snO9dFWMxQuFj6TSKlmUs8oe8GQdh8rssPTAe-ALnJqD8kodOHUvmzDfqu9jRcQkihkTkKHQhbGHlfKqqzNzHEt8GriZaZL7G4');
 /*!40000 ALTER TABLE `notifications` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -115,9 +172,14 @@ CREATE TABLE `users` (
   `password` varchar(255) NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `android_token` varchar(255) DEFAULT NULL,
+  `ios_token` varchar(255) DEFAULT NULL,
+  `number_of_children` int DEFAULT '0',
+  `refresh_token` text,
+  `reset_token` varchar(64) DEFAULT NULL,
+  `reset_token_expires` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=99 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -126,7 +188,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'Arpan','arpnagar1@gmail.com','$2a$10$juMD3ocl40jwyQucGdHLDuzGO2wAirmSjj1W7Uganrlqux.EnWjqm','2024-05-31 19:18:41','elQCf_e1T_mr4dFmhXYY6J:APA91bHaKb_ALiTXL3zBhlledhcqqG-ppgLcrowepJWTfS7quEYTwNLhyKrkKgERydGj2jq0L3ysqsvr6973L0SiNVzLhrQsCYARKipKgos2zFbBoV64m6Q_5O8cjgSNr-kmBb33rieM'),(2,'Arpu','arp@test.com','$2a$10$pTOmavYR3ilLqDehp467yuyQZnD0sE66cgN/bzrgpRG9F1YeVYT5u','2024-05-31 19:27:13',NULL),(3,'pap','pap@gm.com','$2a$10$hO36qVeHWjrR4nld6Bh/SOgvd47/H29dCilKuJXcYf75TD9KfBREC','2024-06-26 17:41:57',NULL);
+INSERT INTO `users` VALUES (1,'Arpan','arpnagar1@gmail.com','$2a$10$juMD3ocl40jwyQucGdHLDuzGO2wAirmSjj1W7Uganrlqux.EnWjqm','2024-05-31 19:18:41','frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv',NULL,2,NULL,NULL,NULL),(2,'Arpu','arp@test.com','$2a$10$pTOmavYR3ilLqDehp467yuyQZnD0sE66cgN/bzrgpRG9F1YeVYT5u','2024-05-31 19:27:13',NULL,NULL,0,NULL,NULL,NULL),(3,'pap','pap@gm.com','$2a$10$hO36qVeHWjrR4nld6Bh/SOgvd47/H29dCilKuJXcYf75TD9KfBREC','2024-06-26 17:41:57',NULL,NULL,0,NULL,NULL,NULL),(5,'Dwight','dwight@test.com','$2a$10$eucELX0R4tObQjFHg6kvbORDshQrOFH6qDOFr4XOwQZHaAwsiNAES','2024-06-26 22:17:54','e1xmOq0ERyOX_myf5QDu7t:APA91bG1PlUGeuKENLnjyEvThXCadJtzNCK-Fcvs6RMGxZvow22xpfxyEs3xh1E9At1ACJ_A5Kb4Gdg1cXieROLXahaT2PX6ofChr_9RPdliLdw7MkobO3hz5mqTr_vOak2gWZKrXLiQ',NULL,0,NULL,NULL,NULL),(6,'Pan','Pp','$2a$10$WsxMUMTOWUw3jJOAONvfQuxwvcUnCPTP8kS4ORiOpwCvfxSb9fRoK','2024-06-27 14:26:59','c4wB5mwwQAi_5_qhcLpUqM:APA91bEH3nNQz-S2ohH0SZtXg-FalHtzgP8Ajb-SmngfAyif_Le3tw9CtnSETmiI_GlWHHF9INo4MBrbCrVpQBDKo_QxMmIR4PjhK8BkGMks6VqE29h0dP1NrBuHlzrJ-NFEH0o5rTrk',NULL,0,NULL,NULL,NULL),(7,'Arpan','myemail@xyz.edu','$2a$10$4F5puRxWiaW7/k0pg.43KeaFvhLWadEScBSrNdjbqCSqaP8bxiIJ2','2024-07-10 15:23:24','ewUmQRgNRQmMAidBhKeLPE:APA91bGTpuaMEqoJSLzqTuPqYTS7BeKKzpkEEyrkRb1UfDL0VD45rrqDWA60sWTbbCQZAgXTBX1inP5B8FWRteBydgE2BE7kj7XQWLZseXGUxtq_T2dn8zm0kN0FAcjYF8qhg3b1YDFt',NULL,0,NULL,NULL,NULL),(8,'Lol','lol','$2a$10$44StvF.Z0jYQxW/.HKVf3OmECciUA41X6cJ6rGIjQhqFeZcB8CA/m','2024-07-10 15:52:11','dAqhX-CUQ96PF6TMhS9IHG:APA91bHjlPIw3wbHuWb6tmYpyicLFkzZS2t3ISXoS6V4n4NjcFwUkqJiVNm1Xwre9rmNU1oQNFzZLuBQs7csA0RSPbahe2IaydjRz2TVDgMfHEA5ZElfFshkWs4uTcdISdKJLrcJZKoH',NULL,0,NULL,NULL,NULL),(9,'New','new','$2a$10$krb30VbS/KUPxjiKF9AAPOpFTPit6POzABbc9dKV9uuY.ZzoeAcvy','2024-07-10 16:01:40','cSN2dekuQXqpcRfgU9GYGr:APA91bF_E8vcLZ4IYgenR6eYk8v2C_BsbizyZiWcaa82W9JPCpmrhnm4uob2B06hhPK34OtJN5_6SgjIlNmgpn_YFmhCmokxdH2K9DvCm97LFG6I-uliCyPWI4zv70tmE5LSHq3yOyTx',NULL,0,NULL,NULL,NULL),(10,'Arpan','arpan@uf.edu','$2a$10$5kRPqw6ZibnWSk6n4WHQzeBHUFAI/zWFUYSTNPnRBKe.UQBuonoQ6','2024-07-10 16:35:48','eN_vc94QSc-x0D0ted1xjA:APA91bErdHx1liQenPMmahJ7Nmx4hsgGkIBFMrxFLJK8by4UFcQw1ZRhgG8enqEWPrrpboiSvE_FdNVJU3GtrOBUV5CTiCj4qVbtC_uLOOm7PWn40AP0IjOAd-ADhooNEKmr6essjlkz',NULL,0,NULL,NULL,NULL),(11,'Arpan','a@ufl.edu','$2a$10$WiRVSeya2BKpIFKB2aEC9uLIwOpLqchCoxE0z66.zGFeIc1CX66Yq','2024-07-10 16:47:01',NULL,NULL,0,NULL,NULL,NULL),(12,'lol','lmao','$2a$10$sYLFHTw3pIgYYUOkVyi5F.3SHSPeiHiIGT1BVrj9/AqtEB4kWqiOC','2024-07-10 17:07:51',NULL,NULL,0,NULL,NULL,NULL),(13,'Llll','Ppp','$2a$10$IUp1IAus.Ajl3iyoAgfuuO.zxO0YF1eMlBbmS7OiFslRjKrLsl9ZK','2024-07-10 17:11:09',NULL,NULL,0,NULL,NULL,NULL),(14,'Pelfrey.19@osu.edu','Pelf9078','$2a$10$ltvI.KaqYZxcnTv6afgGo.iqGyCAG6qunvF7Mzv5pf8r9gYLHsHPu','2024-07-31 00:34:57',NULL,NULL,0,NULL,NULL,NULL),(41,'Herman','htknopf@gmail.com','$2a$10$05PriLMEh.7vbeUN1cQT0OKIN2VUPsMvK9ZXLVLbk1yuOad3Z8fC6','2024-10-24 22:32:41',NULL,NULL,0,NULL,NULL,NULL),(56,'Francis','hknopf@ufl.edu','$2a$10$A43FoAxwo9aQ4Q3qfltol.RbgdShywqDUUSI9ZoJojag3vAk3MmUq','2024-11-07 17:37:37',NULL,'dOQp_GA6L0Wqhwslu6pliM:APA91bHGJOvF8_x1FRMY2snO9dFWMxQuFj6TSKlmUs8oe8GQdh8rssPTAe-ALnJqD8kodOHUvmzDfqu9jRcQkihkTkKHQhbGHlfKqqzNzHEt8GriZaZL7G4',2,'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NTYsImlhdCI6MTczODg2NDcyMiwiZXhwIjoxNzQxNDU2NzIyfQ.AQBRa0h4I6ptIFmPSwxuLUBJkAMwfASwXkoppzNt6p8',NULL,NULL),(65,'Rachel Eubanks','racheleubanks84@gmail.com','$2a$10$egJ2V3ahR2dAAx6MJCI2Au/7WRN/CpZa9dYH/1Ev29kwmtw3o8XWe','2024-11-19 02:31:27',NULL,NULL,0,NULL,NULL,NULL),(66,'Dévonja','drheavenbound777@gmail.com','$2a$10$ZR8KZhnSmdnplPWI0Mw1POgwEr0/IsGVH06DVSow25XYRTRPzNlq.','2024-11-19 13:48:17',NULL,NULL,0,NULL,NULL,NULL),(67,'Maureen','mconeoy@coe.ufl.edu','$2a$10$XDXWmOmycoNkkngAHcO9Wem887Func0BDqQOENGv6XYjbQB8Xplwm','2024-11-19 14:22:22',NULL,NULL,0,NULL,NULL,NULL),(68,'Mud','mud@gmail.com','$2a$10$b3R8x1.UZgVjbffdHsCkQOs0qF3BSQJgc2iCfqu5wLzx0DYGDGfKm','2024-11-20 20:59:23',NULL,NULL,0,NULL,NULL,NULL),(69,'Maureen','mconroy@coe.ufl.edu','$2a$10$6Tfa.4H0HaiXuu0YePZlrecC9iFNDaBH1zwc4QVYWovfC8QkuNVAu','2024-11-20 20:59:58',NULL,NULL,0,NULL,NULL,NULL),(85,'Dinesh','dinesh@gmail.com','$2a$12$SxLU7s1zOfgW4Rxm/3DFAeSmU.DMg3oW5pC4xpr0Ws5nsPBNWz5Xq','2024-12-02 22:48:32',NULL,NULL,2,NULL,NULL,NULL),(86,'Di','di@gmail.com','$2a$12$U2mWp/ZuCs29UHaokl1x.OQN24KRg1.BoF3n5.zrw5U.kQa2gpdqq','2024-12-02 22:55:59',NULL,'ciMUEWkcv0klujtKkU6O8q:APA91bFtpK2QH_TS9F6zAFAI9ip5pbyCWp-w_KXiSvB2DGasQvlzqqVFFmoASTu65TXcWlfFW0k_QXSMJ-dr1LkLwxRPuzZZZMpXzKi_ms1Gya7Cgo9txYQ',3,NULL,NULL,NULL),(87,'Ay','ay@gmail.com','$2a$12$XfBrJ4Hh0WaQXSWSHNO6h.VHeaIiHCUDCgMBp0TBSeZID2XJSgnve','2024-12-03 23:32:40',NULL,NULL,2,NULL,NULL,NULL),(88,'Amrish','amrish@gmail.com','$2a$12$ryvs5Kw7gZYvZayGUDJ6EOjUfJp2nuWZicElbSWErSAUcSxnVx0UG','2024-12-23 13:48:27','cmWWtkVQTsyZBpARsY2T3-:APA91bFYtxBuT9O9w0edQBqhMEZLQswp3ScSeKTBuTZCJvwip0HtDYgEQ82XVxIm2H7vZP9NazMGxX2xL-G8ooRy_tUHpy-yVha5sW08lMRkR_rz_1fOg2w',NULL,2,NULL,'$2a$12$2jNfaolwI63T/0AUhItUJOiYVNXv.E7BNDsDoW6h93ksHMugk00qK','2025-01-28 20:36:34'),(89,'Abdur','abdur@gmail.com','$2a$12$iFuravxsIC2Wo9AHV5Ue/ua2PWJydugLWY5otMI6u6LjeqyENnh.2','2025-01-06 14:43:33',NULL,'dYT00v8ejESXq236_kGHa5:APA91bG1vtecR-7D3hVHJOMUuo1A5f-Z6qGyKCmQEK3f0bCdFg2xgo_hjmEwN6UO43XC0f9Wzh6ypiH0VsCLewyQejFNgSGizpo6VNznTH4vMZHYydz-G34',2,NULL,NULL,NULL),(90,'arpan','a@x.com','$2a$12$I5O04kVPrD6wTRAvHaCm/eETGrTqfN/0k5cUCqhkV8GClHMIxZafq','2025-01-17 14:04:39',NULL,'frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv',2,NULL,NULL,NULL),(91,'Arpu','arpu@gmail.com','$2a$12$.GStUq5TtwHlMxMeU7wbaONS6yMKyCyKtAI2v5izcHtpKpzWbpQOu','2025-01-20 20:37:41',NULL,NULL,2,NULL,NULL,NULL),(92,'John Doe','johndoe@example.com','$2a$12$tmaUwZ2SayS8FVi8Kx/dBeZcfSosE5mXFEFF1CrsuyNCc17UFoP52','2025-01-22 20:16:08',NULL,NULL,2,NULL,NULL,NULL),(93,'Malay','Malay@gmail.com','$2a$12$xxMZdP6V4WzzZI7iLXZ37.fY/S8F1q50colP9QEMLEWOhN0V8W0cO','2025-01-23 15:56:41','cmWWtkVQTsyZBpARsY2T3-:APA91bFYtxBuT9O9w0edQBqhMEZLQswp3ScSeKTBuTZCJvwip0HtDYgEQ82XVxIm2H7vZP9NazMGxX2xL-G8ooRy_tUHpy-yVha5sW08lMRkR_rz_1fOg2w',NULL,2,NULL,NULL,NULL),(94,'Ayush','ayush@gmail.com','$2a$12$.RkdEPGW1moiaoazF8jL/uQgfPmGl9/XFPIx6MywRzGc7AoXH0lNy','2025-01-26 18:46:36',NULL,'fmoP5DMLqkQ2nvgkaniMag:APA91bEWOgIaImjVAJtrvlaE3Ow7jcqwHpbP8kPb0SEZUvAxWHDHu1RU_Szs6OGYwypnr406JE_FoaI5dCbKjbxZtP1GjOi_3pXlT4IBzpdde-c0mCC2w6M',2,NULL,NULL,NULL),(95,'ishmeet','ishmeet@gmail.com','$2a$12$s0l/IVxRV//A8nczFZO.kOOEUTNG90NNaDex6hhU/DYZVoEg73z8C','2025-01-26 19:55:30','cmWWtkVQTsyZBpARsY2T3-:APA91bFYtxBuT9O9w0edQBqhMEZLQswp3ScSeKTBuTZCJvwip0HtDYgEQ82XVxIm2H7vZP9NazMGxX2xL-G8ooRy_tUHpy-yVha5sW08lMRkR_rz_1fOg2w',NULL,2,NULL,NULL,NULL),(96,'Ayush','ayushmitali123@gmail.com','$2a$12$E6HupVwFeaZH2cHLJ8YmcOutzESVw485Vunv8MN4KSXacYWXZXAYS','2025-01-28 19:37:19',NULL,NULL,1,'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6OTYsImlhdCI6MTczODE3NTgyMiwiZXhwIjoxNzQwNzY3ODIyfQ.S5aS5MjkKQV01V4aB3lpu8nnVDUwmgdUmZhmbC9WzGs','$2a$12$feskyJNnMVzvLUlmKNapTOFYzf7USHOHexiyDSxLsVHgv9QXgEks2','2025-02-05 00:02:05'),(97,'vedant','vedant@gmail.com','$2a$12$lvkhp1dAONFVog.2N6PzeuSBvWImrNdTe6DTuXryrDDr1S8UcRGY6','2025-02-04 22:45:57','cmWWtkVQTsyZBpARsY2T3-:APA91bFYtxBuT9O9w0edQBqhMEZLQswp3ScSeKTBuTZCJvwip0HtDYgEQ82XVxIm2H7vZP9NazMGxX2xL-G8ooRy_tUHpy-yVha5sW08lMRkR_rz_1fOg2w',NULL,1,NULL,NULL,NULL),(98,'Arpan','arpan100@g.com','$2a$12$dpGZLbO09PpnlPFB/l.LRO7OVqfVJNyyYPLw9Wwwyagmap2Qp4amW','2025-02-06 20:14:10','frdUGBYGTK-rcZ0DrNhHUT:APA91bGJw82hthrPrxshk9I1ha87b-so4qBeXvUhzo-226KwAYR0LaSuSiCGAJANZclHLUis0Pgiy8boNjBvF2J5WIUEyOGkxk56_cYs_1MG-SUpLxJ1OX6R20X7f3Q8ep8EwZW7PvTv',NULL,2,'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6OTgsImlhdCI6MTczODg3Mjg2NCwiZXhwIjoxNzQxNDY0ODY0fQ.nrX3QUJwx5T0uvqCeGFBYqBEWZVChkVs_6fx3QGtnhs',NULL,NULL);
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -139,4 +201,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-06-26 13:49:50
+-- Dump completed on 2025-02-06 21:50:00
