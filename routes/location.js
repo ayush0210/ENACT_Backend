@@ -3,7 +3,7 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 const pool = require('../config/db');
 const authenticateJWT = require('./middleware');
-// const serviceAccount = require('../key.json');
+const serviceAccount = require('../key.json');
 const router = express.Router();
 // if (!admin.apps.length) {
 // admin.initializeApp({
@@ -12,11 +12,11 @@ const router = express.Router();
 // }
 
 const { GoogleAuth } = require('google-auth-library');
-import serviceAccount from '../key.json';
+// import serviceAccount from '../key.json';
 // import authenticateJWT from './middleware';
 // const pool = require('../config/db');
 const auth = new GoogleAuth({
-    keyFile: '../key.json',
+    // keyFile: '../key.json',
     scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
 });
 const fcmSendEndpoint =
