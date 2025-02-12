@@ -3,24 +3,18 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 const pool = require('../config/db');
 const authenticateJWT = require('./middleware');
-// const serviceAccount = require('../key.json');
 const router = express.Router();
-// if (!admin.apps.length) {
-// admin.initializeApp({
-//     credential: admin.credential.applicationDefault(),
-// });
-// }
 
 const { GoogleAuth } = require('google-auth-library');
-import serviceAccount from '../key.json';
-// import authenticateJWT from './middleware';
-// const pool = require('../config/db');
 const auth = new GoogleAuth({
-    keyFile: '../key.json',
-    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+    scopes: [
+        'https://www.googleapis.com/auth/firebase.messaging',
+        'https://www.googleapis.com/auth/cloud-platform',
+    ],
 });
 const fcmSendEndpoint =
     'https://fcm.googleapis.com/v1/projects/talk-around-town-423916-ec889/messages:send';
+const serviceAccount = require('../key.json');
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
 });
@@ -198,6 +192,7 @@ const sendNotification = async (deviceToken, title, body, data, isIOS) => {
                 },
             },
         };
+        console.log(accessToken.token);
         axios
             .post(fcmSendEndpoint, messagePayload, {
                 headers: {
@@ -207,13 +202,6 @@ const sendNotification = async (deviceToken, title, body, data, isIOS) => {
             })
             .then(async response => {
                 console.log('Message sent successfully:', response.data);
-                // Update the count in the database
-                //             const [result] = await pool.query(
-                //                 `INSERT INTO notifications (user_id, loc_id, device_id)
-                // VALUES (?, ?, ?);`,
-                //                 [user_id, found_id, androidToken],
-                //             );
-                console.log('Notification inserted successfully:');
             })
             .catch(error => {
                 console.error('Error sending message:', error.response.data);
@@ -252,11 +240,11 @@ const sendNotification = async (deviceToken, title, body, data, isIOS) => {
                 : {},
         };
 
-        console.log('Sending message:', JSON.stringify(message, null, 2));
+        // console.log('Sending message:', JSON.stringify(message, null, 2));
 
-        const response = await admin.messaging().send(message);
-        console.log('Notification sent successfully:', response);
-        return response;
+        // const response = await admin.messaging().send(message);
+        // console.log('Notification sent successfully:', response);
+        return true;
     } catch (error) {
         console.error('Notification error:', {
             code: error.errorInfo?.code,
