@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import user from './routes/user';
 import tips from './routes/tips';
 import childrenRouter from './routes/children';
+import sessionRoutes from './routes/sessions';
 const app = express();
 app.use(cors());
 
@@ -19,6 +20,7 @@ app.use(cookieParser('session'));
 app.use(body.json());
 app.use(body.urlencoded({ extended: true }));
 app.use('/endpoint', childrenRouter);
+app.use('/endpoint/session', sessionRoutes);
 
 import authroutes from './routes/auth';
 app.use('/api/auth', authroutes);
