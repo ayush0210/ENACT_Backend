@@ -1,132 +1,186 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const authenticateJWT = require('./middleware');
+const { authenticateJWT } = require('./middleware');
 
 // Get children information for a user
 router.get('/children', authenticateJWT, async (req, res) => {
-  try {
-    const user_id = req.user.id;
-    
-    const [rows] = await pool.query(
-      `SELECT id, nickname, date_of_birth
+    try {
+        const user_id = req.user.id;
+
+        const [rows] = await pool.query(
+            `SELECT id, nickname, date_of_birth
        FROM children
        WHERE user_id = ?`,
-      [user_id]
-    );
+            [user_id],
+        );
 
-    return res.status(200).json({
-      success: true,
-      children: rows
-    });
-  } catch (error) {
-    console.error('Error fetching children:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch children information'
-    });
-  }
+        return res.status(200).json({
+            success: true,
+            children: rows,
+        });
+    } catch (error) {
+        console.error('Error fetching children:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch children information',
+        });
+    }
 });
 
 // Add new child
 router.post('/children', authenticateJWT, async (req, res) => {
-  const connection = await pool.getConnection();
-  try {
-    const { nickname, date_of_birth } = req.body;
-    const user_id = req.user.id;
+    const connection = await pool.getConnection();
+    try {
+        const { nickname, date_of_birth } = req.body;
+        const user_id = req.user.id;
 
-    // Start transaction
-    await connection.beginTransaction();
+        // Start transaction
+        await connection.beginTransaction();
 
-    // Insert new child
-    const [result] = await connection.query(
-      `INSERT INTO children (user_id, nickname, date_of_birth)
+        // Insert new child
+        const [result] = await connection.query(
+            `INSERT INTO children (user_id, nickname, date_of_birth)
        VALUES (?, ?, ?)`,
-      [user_id, nickname, date_of_birth]
-    );
+            [user_id, nickname, date_of_birth],
+        );
 
-    // Update user's number_of_children
-    await connection.query(
-      `UPDATE users 
+        // Update user's number_of_children
+        await connection.query(
+            `UPDATE users 
        SET number_of_children = number_of_children + 1 
        WHERE id = ?`,
-      [user_id]
-    );
+            [user_id],
+        );
 
-    // Commit transaction
-    await connection.commit();
+        // Commit transaction
+        await connection.commit();
 
-    return res.status(201).json({
-      success: true,
-      message: 'Child added successfully',
-      childId: result.insertId
-    });
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error adding child:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to add child'
-    });
-  } finally {
-    connection.release();
-  }
+        return res.status(201).json({
+            success: true,
+            message: 'Child added successfully',
+            childId: result.insertId,
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error adding child:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to add child',
+        });
+    } finally {
+        connection.release();
+    }
 });
 
 // Update children information
 router.post('/updateChildren', authenticateJWT, async (req, res) => {
-  const connection = await pool.getConnection();
-  
-  try {
-    const { children } = req.body;
-    const user_id = req.user.id;
+    const connection = await pool.getConnection();
 
-    // Start transaction
-    await connection.beginTransaction();
+    try {
+        const { children } = req.body;
+        const user_id = req.user.id;
 
-    for (const child of children) {
-      // Verify child belongs to user
-      const [childRows] = await connection.query(
-        'SELECT id FROM children WHERE id = ? AND user_id = ?',
-        [child.id, user_id]
-      );
+        // Start transaction
+        await connection.beginTransaction();
 
-      if (childRows.length === 0) {
-        await connection.rollback();
-        return res.status(403).json({
-          success: false,
-          message: 'Unauthorized access to child record'
-        });
-      }
+        for (const child of children) {
+            // Verify child belongs to user
+            const [childRows] = await connection.query(
+                'SELECT id FROM children WHERE id = ? AND user_id = ?',
+                [child.id, user_id],
+            );
 
-      // Update child information
-      await connection.query(
-        `UPDATE children 
+            if (childRows.length === 0) {
+                await connection.rollback();
+                return res.status(403).json({
+                    success: false,
+                    message: 'Unauthorized access to child record',
+                });
+            }
+
+            // Update child information
+            await connection.query(
+                `UPDATE children 
          SET nickname = ?, 
              date_of_birth = ? 
          WHERE id = ? AND user_id = ?`,
-        [child.nickname, child.date_of_birth, child.id, user_id]
-      );
+                [child.nickname, child.date_of_birth, child.id, user_id],
+            );
+        }
+
+        // Commit transaction
+        await connection.commit();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Children information updated successfully',
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error updating children:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update children information',
+        });
+    } finally {
+        connection.release();
     }
+});
 
-    // Commit transaction
-    await connection.commit();
+// Delete a child
+router.delete('/children/:id', authenticateJWT, async (req, res) => {
+    const connection = await pool.getConnection();
 
-    return res.status(200).json({
-      success: true,
-      message: 'Children information updated successfully'
-    });
+    try {
+        const childId = req.params.id;
+        const user_id = req.user.id;
 
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error updating children:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update children information'
-    });
-  } finally {
-    connection.release();
-  }
+        console.table([childId, user_id]);
+
+        // Start transaction
+        await connection.beginTransaction();
+
+        // Verify the child belongs to this user
+        const [childRows] = await connection.query(
+            'SELECT id FROM children WHERE id = ? AND user_id = ?',
+            [childId, user_id],
+        );
+
+        const data = await connection.query('SELECT * FROM children')
+        console.log(data)
+
+        if (childRows.length === 0) {
+            await connection.rollback();
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access or child not found',
+            });
+        }
+
+        // Delete the child record
+        await connection.query(
+            'DELETE FROM children WHERE id = ? AND user_id = ?',
+            [childId, user_id],
+        );
+
+        // Commit transaction
+        await connection.commit();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Child deleted successfully',
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error deleting child:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to delete child',
+        });
+    } finally {
+        connection.release();
+    }
 });
 
 module.exports = router;

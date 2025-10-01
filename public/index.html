@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>ENACT - Enhancing Talk Across Contexts</title>
+    <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #004e89;
+            --secondary-color: #7ebc89;
+            --accent-color: #aa5027;
+            --light-color: #F8F9FA;
+            --dark-color: #0a0a0a;
+        }
+        
+        body {
+            font-family: 'Nunito', Helvetica, Arial, Lucida, sans-serif;
+            color: var(--dark-color);
+            line-height: 1.9em;
+            font-size: 16px;
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Crimson Text', Georgia, "Times New Roman", serif;
+            color: var(--primary-color);
+            line-height: 1.1em;
+        }
+        
+        .navbar {
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .navbar-brand {
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        
+        .nav-link {
+            color: var(--primary-color);
+            font-weight: 700;
+            font-size: 20px;
+        }
+        
+        .nav-link:hover {
+            color: var(--accent-color);
+        }
+        
+        .btn-primary {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+        
+        .hero {
+            background-image: url('/images/hero-bg.jpg');
+            background-size: cover;
+            background-position: center;
+            padding: 100px 0;
+            position: relative;
+        }
+        
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 78, 137, 0.7);
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            color: white;
+        }
+        
+        .hero h1 {
+            font-weight: 800;
+            font-size: 40px;
+            color: white;
+            margin-bottom: 20px;
+        }
+        
+        .hero p {
+            font-size: 18px;
+            margin-bottom: 30px;
+        }
+        
+        .section {
+            padding: 80px 0;
+        }
+        
+        .section-title {
+            font-weight: 700;
+            margin-bottom: 50px;
+            position: relative;
+            display: inline-block;
+        }
+        
+        .section-title:after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 50px;
+            height: 3px;
+            background-color: var(--secondary-color);
+        }
+        
+        .feature-card {
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px;
+            padding: 32px 28px;
+            height: 100%;
+            background-color: white;
+            transition: transform 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-10px);
+        }
+        
+        .feature-icon {
+            font-size: 2.5rem;
+            color: var(--secondary-color);
+            margin-bottom: 20px;
+        }
+        
+        .cta-section {
+            background-color: var(--light-color);
+            padding: 60px 0;
+        }
+        
+        footer {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 50px 0 20px;
+        }
+        
+        .logo-container {
+            border-right: 1px solid var(--primary-color);
+            padding-right: 0px;
+            padding-top: 32px;
+        }
+        
+        .top-header {
+            padding-top: 0px;
+            padding-bottom: 0px;
+        }
+        
+        .top-header .row {
+            width: 100%;
+            max-width: 2560px;
+        }
+        
+        .main-menu {
+            padding-top: 20px;
+        }
+        
+        .footer-link {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            margin-bottom: 10px;
+            display: block;
+            transition: color 0.3s;
+        }
+        
+        .footer-link:hover {
+            color: white;
+        }
+        
+        .copyright {
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 20px;
+            margin-top: 30px;
+        }
+        
+        .timeline {
+            position: relative;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .timeline::after {
+            content: '';
+            position: absolute;
+            width: 6px;
+            background-color: var(--secondary-color);
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            margin-left: -3px;
+        }
+        
+        .timeline-container {
+            padding: 10px 40px;
+            position: relative;
+            background-color: inherit;
+            width: 50%;
+        }
+        
+        .timeline-container.left {
+            left: 0;
+        }
+        
+        .timeline-container.right {
+            left: 50%;
+        }
+        
+        .timeline-container::after {
+            content: '';
+            position: absolute;
+            width: 25px;
+            height: 25px;
+            right: -13px;
+            background-color: white;
+            border: 4px solid var(--secondary-color);
+            top: 15px;
+            border-radius: 50%;
+            z-index: 1;
+        }
+        
+        .timeline-container.right::after {
+            left: -12px;
+        }
+        
+        .timeline-content {
+            padding: 20px 30px;
+            background-color: white;
+            position: relative;
+            border-radius: 6px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+        
+        @media screen and (max-width: 768px) {
+            .timeline::after {
+                left: 31px;
+            }
+            
+            .timeline-container {
+                width: 100%;
+                padding-left: 70px;
+                padding-right: 25px;
+            }
+            
+            .timeline-container.right {
+                left: 0%;
+            }
+            
+            .timeline-container.left::after, .timeline-container.right::after {
+                left: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="top-header">
+            <div class="container-fluid">
+                <div class="row align-items-center">
+                    <div class="col-lg-3 logo-container">
+                        <a href="https://ceecs.education.ufl.edu/">
+                            <img src="https://thesunshineportal.org/wp-content/uploads/2024/12/CEECS_AnitaZucker2lines-04.png" alt="Anita Zucker Center for Excellence in Early Childhood Studies" class="img-fluid" style="max-width: 90%;">
+                        </a>
+                    </div>
+                    <div class="col-lg-9">
+                        <nav class="navbar navbar-expand-lg">
+                            <div class="container-fluid">
+                                <a class="navbar-brand" href="#">
+                                    <h2>ENACT</h2>
+                                    <span>Enhancing Talk Across Contexts</span>
+                                </a>
+                                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                                    <span class="navbar-toggler-icon"></span>
+                                </button>
+                                <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+                                    <ul class="navbar-nav main-menu">
+                                        <li class="nav-item">
+                                            <a class="nav-link active" href="#home">Home</a>
+                                        </li>
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="#about">About</a>
+                                        </li>
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="#features">Features</a>
+                                        </li>
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="#team">Team</a>
+                                        </li>
+                                        <li class="nav-item">
+                                            <a class="nav-link" href="#contact">Contact</a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero" id="home">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-6 hero-content">
+                    <h1>Enhancing Talk Across Contexts (ENACT)</h1>
+                    <p>ENACT is an innovative mobile application designed to support and enhance parent-child communication across various contexts. The app provides real-time strategies to help parents engage in rich language interactions with their children during daily activities.</p>
+                    <div class="d-flex flex-wrap">
+                        <a href="#download" class="btn btn-primary btn-lg me-3 mb-3">Download App</a>
+                        <a href="#learn-more" class="btn btn-outline-light btn-lg mb-3">Learn More</a>
+                    </div>
+                </div>
+                <div class="col-lg-6 text-center">
+                    <img src="/images/app-mockup.png" alt="ENACT App Mockup" class="img-fluid" style="max-width: 80%;">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section class="section" id="about">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="section-title">About ENACT</h2>
+                </div>
+            </div>
+            <div class="row align-items-center">
+                <div class="col-lg-6 mb-4 mb-lg-0">
+                    <p>Enhancing Talk Across Contexts (ENACT) is a project developed by the University of Florida's Anita Zucker Center for Excellence in Early Childhood Studies. ENACT focuses on supporting parents in promoting language development with their young children during everyday activities.</p>
+                    
+                    <p>The ENACT mobile application uses innovative technology to provide real-time, context-specific communication strategies to parents. When a parent enters a specific location with their child, such as a grocery store, park, or library, the app delivers customized tips and prompts designed to enhance parent-child interactions in that specific environment.</p>
+                    
+                    <p>By providing support directly in the contexts where parents and children spend time together, ENACT aims to increase the quantity and quality of parent-child communications, ultimately supporting children's language development and learning.</p>
+                </div>
+                <div class="col-lg-6">
+                    <img src="/images/about-enact.jpg" alt="Parent and child engaged in conversation" class="img-fluid rounded shadow">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="section bg-light" id="features">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="section-title">Key Features</h2>
+                </div>
+            </div>
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-map-marker-alt feature-icon"></i>
+                        <h3>Location-Specific Tips</h3>
+                        <p>Receive customized communication strategies based on your current location, whether you're at the grocery store, park, library, or other community settings.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-child feature-icon"></i>
+                        <h3>Child-Specific Content</h3>
+                        <p>Set up profiles for your children with their names, ages, and interests to receive personalized communication strategies that match their developmental stages.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-thumbs-up feature-icon"></i>
+                        <h3>Feedback System</h3>
+                        <p>Rate tips with thumbs up/down to help the app learn which strategies work best for you and your child, ensuring more relevant suggestions in the future.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-medal feature-icon"></i>
+                        <h3>Gamification</h3>
+                        <p>Earn badges and track your progress as you consistently use the app to enhance communication with your child across different contexts.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-brain feature-icon"></i>
+                        <h3>AI-Enhanced Tips</h3>
+                        <p>Receive AI-generated tips that incorporate your child's interests and generalize strategies across different contexts to maximize learning opportunities.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="fas fa-chart-line feature-icon"></i>
+                        <h3>Progress Tracking</h3>
+                        <p>Monitor your engagement with the app and see how your interactions with your child are increasing over time across different locations.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="section" id="how-it-works">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="section-title">How ENACT Works</h2>
+                </div>
+            </div>
+            <div class="timeline">
+                <div class="timeline-container left">
+                    <div class="timeline-content">
+                        <h3>Set Up Your Profile</h3>
+                        <p>Create profiles for yourself and your children, including their names, ages, and interests to receive personalized tips.</p>
+                    </div>
+                </div>
+                <div class="timeline-container right">
+                    <div class="timeline-content">
+                        <h3>Select Your Locations</h3>
+                        <p>Choose the community places you frequently visit with your child, such as grocery stores, parks, libraries, or restaurants.</p>
+                    </div>
+                </div>
+                <div class="timeline-container left">
+                    <div class="timeline-content">
+                        <h3>Receive Real-Time Tips</h3>
+                        <p>When you arrive at your selected locations, the app delivers context-specific communication strategies that match your child's developmental needs.</p>
+                    </div>
+                </div>
+                <div class="timeline-container right">
+                    <div class="timeline-content">
+                        <h3>Engage With Your Child</h3>
+                        <p>Use the suggested strategies to enhance interactions with your child, promoting language development in everyday activities.</p>
+                    </div>
+                </div>
+                <div class="timeline-container left">
+                    <div class="timeline-content">
+                        <h3>Provide Feedback</h3>
+                        <p>Rate tips using thumbs up/down to help the app learn which strategies work best for you and your child.</p>
+                    </div>
+                </div>
+                <div class="timeline-container right">
+                    <div class="timeline-content">
+                        <h3>Track Your Progress</h3>
+                        <p>Earn badges for consistent usage and monitor how your interactions with your child increase over time.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="download">
+        <div class="container text-center">
+            <h2 class="mb-4">Download ENACT Today</h2>
+            <p class="mb-5">ENACT is available for download on both iOS and Android devices.</p>
+            <div class="d-flex justify-content-center flex-wrap">
+                <a href="#" class="btn btn-dark btn-lg me-3 mb-3"><i class="fab fa-apple me-2"></i>App Store</a>
+                <a href="#" class="btn btn-dark btn-lg mb-3"><i class="fab fa-google-play me-2"></i>Google Play</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Team Section -->
+    <section class="section" id="team">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="section-title">Our Team</h2>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <img src="/images/team-member1.jpg" class="card-img-top" alt="Team Member">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Dr. Patricia Snyder</h5>
+                            <p class="card-text">Director, Anita Zucker Center for Excellence in Early Childhood Studies</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <img src="/images/team-member2.jpg" class="card-img-top" alt="Team Member">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Dr. Maureen Conroy</h5>
+                            <p class="card-text">Co-Director, Anita Zucker Center for Excellence in Early Childhood Studies</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <img src="/images/team-member3.jpg" class="card-img-top" alt="Team Member">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Research Team</h5>
+                            <p class="card-text">The ENACT project is supported by a dedicated team of researchers, developers, and early childhood specialists.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section class="section bg-light" id="contact">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center mb-5">
+                    <h2 class="section-title">Contact Us</h2>
+                </div>
+            </div>
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="card shadow border-0">
+                        <div class="card-body p-5">
+                            <div class="row">
+                                <div class="col-md-5 mb-4 mb-md-0">
+                                    <div class="mb-4">
+                                        <i class="fas fa-map-marker-alt me-2"></i>
+                                        <span>Anita Zucker Center for Excellence in Early Childhood Studies<br>University of Florida<br>Gainesville, FL 32611</span>
+                                    </div>
+                                    <div class="mb-4">
+                                        <i class="fas fa-envelope me-2"></i>
+                                        <span>info@enact.ufl.edu</span>
+                                    </div>
+                                    <div class="mb-4">
+                                        <i class="fas fa-phone me-2"></i>
+                                        <span>(352) 392-7901</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-7">
+                                    <form>
+                                        <div class="mb-3">
+                                            <label for="name" class="form-label">Name</label>
+                                            <input type="text" class="form-control" id="name" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="email" class="form-label">Email</label>
+                                            <input type="email" class="form-control" id="email" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="message" class="form-label">Message</label>
+                                            <textarea class="form-control" id="message" rows="4" required></textarea>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary">Send Message</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row g-4">
+                <div class="col-lg-4">
+                    <h4 class="mb-4">ENACT</h4>
+                    <p>Enhancing Talk Across Contexts (ENACT) is a project of the Anita Zucker Center for Excellence in Early Childhood Studies at the University of Florida, focused on supporting parent-child communication across various contexts.</p>
+                </div>
+                <div class="col-lg-2 col-md-6">
+                    <h5 class="mb-4">Quick Links</h5>
+                    <a href="#home" class="footer-link">Home</a>
+                    <a href="#about" class="footer-link">About</a>
+                    <a href="#features" class="footer-link">Features</a>
+                    <a href="#team" class="footer-link">Team</a>
+                    <a href="#contact" class="footer-link">Contact</a>
+                </div>
+                <div class="col-lg-2 col-md-6">
+                    <h5 class="mb-4">Resources</h5>
+                    <a href="#" class="footer-link">FAQ</a>
+                    <a href="#" class="footer-link">Privacy Policy</a>
+                    <a href="#" class="footer-link">Terms of Service</a>
+                    <a href="#" class="footer-link">User Manual</a>
+                    <a href="#" class="footer-link">Support</a>
+                </div>
+                <div class="col-lg-4">
+                    <h5 class="mb-4">University of Florida</h5>
+                    <a href="https://www.ufl.edu/" class="footer-link">University of Florida</a>
+                    <a href="https://education.ufl.edu/" class="footer-link">College of Education</a>
+                    <a href="https://ceecs.education.ufl.edu/" class="footer-link">Anita Zucker Center</a>
+                </div>
+            </div>
+            <div class="text-center copyright">
+                <p>&copy; 2025 University of Florida. All rights reserved.</p>
+                <p>This project is supported by the University of Florida's Anita Zucker Center for Excellence in Early Childhood Studies.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                const targetId = this.getAttribute('href');
+                const targetElement = document.querySelector(targetId);
+                
+                if (targetElement) {
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+        
+        // Navbar active state
+        const sections = document.querySelectorAll('section');
+        const navLinks = document.querySelectorAll('.nav-link');
+        
+        window.addEventListener('scroll', () => {
+            let current = '';
+            
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                const sectionHeight = section.clientHeight;
+                
+                if (pageYOffset >= sectionTop - 200) {
+                    current = section.getAttribute('id');
+                }
+            });
+            
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === `#${current}`) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

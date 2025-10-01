@@ -1,7 +1,7 @@
 // sessions.js
 const express = require('express');
 const pool = require('../config/db');
-const authenticateJWT = require('./middleware');
+const { authenticateJWT } = require('./middleware');
 const router = express.Router();
 
 // Start a new session
