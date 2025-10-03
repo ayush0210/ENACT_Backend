@@ -1,14 +1,29 @@
 const express = require('express');
 const axios = require('axios');
 const admin = require('firebase-admin');
-import serviceAccount from '../key.json';
-import authenticateJWT from './middleware';
 const pool = require('../config/db');
-
+// const { authenticateJWT } = require('./middleware');
+const { authenticateJWT } = require('./middleware');
+const serviceAccount = require('../key.json');
 const router = express.Router();
+// if (!admin.apps.length) {
+// admin.initializeApp({
+//     credential: admin.credential.applicationDefault(),
+// });
+// }
+
+const { GoogleAuth } = require('google-auth-library');
+// import serviceAccount from '../key.json';
+// import authenticateJWT from './middleware';
+// const pool = require('../config/db');
+const auth = new GoogleAuth({
+    // keyFile: '../key.json',
+    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+});
+const fcmSendEndpoint =
+    'https://fcm.googleapis.com/v1/projects/talk-around-town-423916-ec889/messages:send';
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    projectId: 'talk-around-town-423916-ec889',
 });
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -32,20 +47,26 @@ function deg2rad(deg) {
 
 async function validateFCMToken(token) {
     try {
-      // Attempt to send a test message with dry run option
-      await admin.messaging().send({
-        token: token,
-        data: {},
-      }, true); // true enables dry run mode - no actual message is sent
-      return true;
+        // Attempt to send a test message with dry run option
+        await admin.messaging().send(
+            {
+                token: token,
+                data: {},
+            },
+            true,
+        ); // true enables dry run mode - no actual message is sent
+        return true;
     } catch (error) {
-      if (error.errorInfo?.code === 'messaging/invalid-argument' ||
-          error.errorInfo?.code === 'messaging/registration-token-not-registered') {
-        return false;
-      }
-      throw error; // Rethrow other errors
+        if (
+            error.errorInfo?.code === 'messaging/invalid-argument' ||
+            error.errorInfo?.code ===
+                'messaging/registration-token-not-registered'
+        ) {
+            return false;
+        }
+        throw error; // Rethrow other errors
     }
-  }
+}
 
 router.post('/addLocation', authenticateJWT, async (req, res) => {
     try {
@@ -65,12 +86,11 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
             'INSERT INTO locations (user_id, lat, `long`, type, name, `desc`) VALUES (?, ?, ?, ?, ?, ?)',
             [user_id, latitude, longitude, type, name, description],
         );
-
         // Check if the insertion was successful
         if (result.affectedRows === 1) {
             return res
                 .status(201)
-                .json({ message: 'Location added successfully' });
+                .json({ message: 'Location added successfully'});
         } else {
             return res.status(500).json({ error: 'Failed to add location' });
         }
@@ -79,7 +99,49 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+router.delete('/deleteLocation', authenticateJWT, async (req, res) => {
+    try {
+        // Get user_id from req.user
+        const user_id = req.user.id;
 
+        // Extract location ID from the request body and ensure it's a number
+        let { id } = req.body;
+        id = parseInt(id, 10); // Convert to number
+
+        // Log for debugging
+        console.log('Delete request received:', { user_id, id, body: req.body });
+
+        // Validate the input data
+        if (!id || isNaN(id)) {
+            return res.status(400).json({ error: 'Valid location ID is required' });
+        }
+
+        try {
+            // Delete the location from the database using ID
+            const [result] = await pool.query(
+                'DELETE FROM locations WHERE user_id = ? AND id = ?',
+                [user_id, id]
+            );
+
+            // Check if the deletion was successful
+            if (result.affectedRows > 0) {
+                return res.status(200).json({ message: 'Location deleted successfully' });
+            } else {
+                return res.status(404).json({ error: 'Location not found or you do not have permission to delete it' });
+            }
+        } catch (dbError) {
+            console.error('Database error during location deletion:', dbError);
+            return res.status(500).json({ 
+                error: 'Database Error', 
+                details: dbError.message,
+                code: dbError.code
+            });
+        }
+    } catch (error) {
+        console.error('Error in deleteLocation endpoint:', error);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
 router.post('/tips', authenticateJWT, async (req, res) => {
     // get tips from db
     // first get userid from req.user
@@ -137,113 +199,110 @@ router.post('/locations', authenticateJWT, async (req, res) => {
         return colors[randomIndex];
     };
 
-    const details = rows.map(row => ({
+const details = rows.map(row => ({
+        id: row.id,
         title: row.name,
         description: row.desc,
         pinColor: getRandomColor(),
     }));
-
     // Send the transformed data as a JSON response
     return res.status(200).json({ locations, details });
     // return res.json(rows);
 });
 
 const sendNotification = async (deviceToken, title, body, data, isIOS) => {
-    try {
-        // Validate token before attempting to send
-        const isValid = await validateFCMToken(deviceToken);
-        if (!isValid) {
-            // Remove invalid token from database
-            const query = isIOS 
-                ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
-                : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
-            
-            await pool.query(query, [deviceToken]);
-            throw new Error('Invalid FCM token - removed from database');
-        }
+  try {
+    console.log('Preparing to send notification:', {
+      platform: isIOS ? 'iOS' : 'Android',
+      tokenPrefix: deviceToken.substring(0, 10),
+      projectId: 'talk-around-town-423916-ec889',
+    });
 
-        const message = {
-            token: deviceToken,
-            notification: {
-                title,
-                body,
-            },
-            data: data || {},
-            android: {
-                priority: 'high',
-                notification: {
-                    channelId: 'location-tips',
-                    priority: 'high',
-                    defaultSound: true,
-                }
-            },
-            apns: isIOS ? {
-                payload: {
-                    aps: {
-                        alert: {
-                            title,
-                            body,
-                        },
-                        sound: 'default',
-                        badge: 1,
-                        'content-available': 1,
-                        'mutable-content': 1,
-                    },
-                },
-                headers: {
-                    'apns-priority': '10',
-                }
-            } : undefined
-        };
-
-        console.log('Sending notification:', {
-            platform: isIOS ? 'iOS' : 'Android',
-            tokenPrefix: deviceToken.substring(0, 10),
-            title,
-        });
-
-        const response = await admin.messaging().send(message);
-        console.log('Notification sent successfully:', response);
-        return response;
-    } catch (error) {
-        console.error('Error sending notification:', error);
-        if (error.errorInfo?.code === 'messaging/registration-token-not-registered') {
-            // Token is no longer valid, remove it from database
-            const query = isIOS 
-                ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
-                : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
-            
-            await pool.query(query, [deviceToken]);
-            console.log('Removed invalid token from database');
-        }
-        throw error;
+    const isValid = await validateFCMToken(deviceToken);
+    if (!isValid) {
+      const query = isIOS
+        ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
+        : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
+      await pool.query(query, [deviceToken]);
+      throw new Error('Invalid FCM token - removed from database');
     }
-};
 
+    // Define your message
+    const message = {
+      token: deviceToken,
+      notification: {
+        title,
+        body,
+      },
+      data: data || {},
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'location-tips',
+          priority: 'high',
+          defaultSound: true,
+        },
+      },
+      apns: isIOS
+        ? {
+            payload: {
+              aps: {
+                alert: { title, body },
+                sound: 'default',
+                badge: 1,
+                'content-available': 1,
+                'mutable-content': 1,
+              },
+            },
+            headers: {
+              'apns-priority': '10',
+            },
+          }
+        : {},
+    };
+
+    console.log('Sending message:', JSON.stringify(message, null, 2));
+    
+    // Send using Firebase Admin SDK - this is cleaner than using axios
+    const response = await admin.messaging().send(message);
+    console.log('Notification sent successfully:', response);
+    return response;
+  } catch (error) {
+    console.error('Notification error:', {
+      code: error.errorInfo?.code,
+      message: error.errorInfo?.message,
+      stack: error.stack,
+    });
+    throw error;
+  }
+};
 const notificationCache = new Map();
 
 router.post('/', authenticateJWT, async (req, res) => {
     const requestId = `${req.user.id}-${Date.now()}`;
-    
+
     try {
         let user_id = req.user.id;
         const { latitude, longitude } = req.body;
 
         if (!latitude || !longitude) {
-            return res.status(400).json({ error: 'Latitude and longitude are required' });
+            return res
+                .status(400)
+                .json({ error: 'Latitude and longitude are required' });
         }
 
         // Check if there's a pending request for this user
         if (notificationCache.has(user_id)) {
             const lastRequest = notificationCache.get(user_id);
-            if (Date.now() - lastRequest < 5000) { // 5 second cooldown
-                return res.status(200).json({ 
+            if (Date.now() - lastRequest < 5000) {
+                // 5 second cooldown
+                return res.status(200).json({
                     message: 'Request throttled',
-                    status: 'throttled'
+                    status: 'throttled',
                 });
             }
         }
-        
+
         notificationCache.set(user_id, Date.now());
 
         // Get user's locations
@@ -276,25 +335,24 @@ router.post('/', authenticateJWT, async (req, res) => {
         }
 
         if (!nearbyLocation) {
-            return res.status(200).json({ 
+            return res.status(200).json({
                 message: 'Not in range of any point',
-                status: 'out_of_range'
+                status: 'out_of_range',
             });
         }
 
         // Check for recent notifications
-        const [notifs] = await pool.query(
-            `SELECT COUNT(*) AS notification_count
-             FROM notifications
-             WHERE user_id = ? AND loc_id = ?
-             AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 5 MINUTE;`,
-            [user_id, nearbyLocation.id],
-        );
-
+const [notifs] = await pool.query(
+    `SELECT COUNT(*) AS notification_count
+     FROM notifications
+     WHERE user_id = ? AND loc_id = ?
+     AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 6 HOUR;`,
+    [user_id, nearbyLocation.id],
+);
         if (notifs[0].notification_count > 0) {
-            return res.status(200).json({ 
+            return res.status(200).json({
                 message: 'Notification cooldown active',
-                status: 'cooldown'
+                status: 'cooldown',
             });
         }
 
@@ -304,25 +362,26 @@ router.post('/', authenticateJWT, async (req, res) => {
             [user_id],
         );
 
-        const deviceToken = result[0].ios_token || result[0].android_token;
+        const deviceToken = result[0].android_token || result[0].ios_token;
         const isIOS = !!result[0].ios_token;
-
+        console.log('Device token:', deviceToken);
+        console.log('Is iOS:', isIOS);
         if (!deviceToken) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: 'No device token found',
-                status: 'no_token'
+                status: 'no_token',
             });
         }
 
         // Get tips
         const [tips] = await pool.query(
             'SELECT title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
-            [nearbyLocation.type]
+            [nearbyLocation.type],
         );
 
-        const tipsText = tips.map(tip => 
-            `${tip.title}\n${tip.description}`
-        ).join('\n\n');
+        const tipsText = tips
+            .map(tip => `${tip.title}\n${tip.description}`)
+            .join('\n\n');
 
         // Send notification with unique identifier
         const notificationId = `${user_id}-${nearbyLocation.id}-${Date.now()}`;
@@ -334,9 +393,9 @@ router.post('/', authenticateJWT, async (req, res) => {
                 notificationId,
                 locationType: nearbyLocation.type,
                 locationId: nearbyLocation.id.toString(),
-                locationName: nearbyLocation.name
+                locationName: nearbyLocation.name,
             },
-            isIOS
+            isIOS,
         );
 
         // Record notification
@@ -347,24 +406,24 @@ router.post('/', authenticateJWT, async (req, res) => {
         );
 
         return res.status(200).json({
-            message: "Notification sent successfully",
+            message: 'Notification sent successfully',
             status: 'success',
             location: nearbyLocation.name,
             type: nearbyLocation.type,
-            notificationId
+            notificationId,
         });
-
     } catch (error) {
         console.error('Error in location check:', error);
-        return res.status(500).json({ 
+        return res.status(500).json({
             error: 'Internal Server Error',
-            details: error.message 
+            details: error.message,
         });
     } finally {
         // Clean up old cache entries
         const now = Date.now();
         for (const [key, timestamp] of notificationCache.entries()) {
-            if (now - timestamp > 60000) { // Remove entries older than 1 minute
+            if (now - timestamp > 60000) {
+                // Remove entries older than 1 minute
                 notificationCache.delete(key);
             }
         }
