@@ -619,68 +619,64 @@ class PersonalizationService {
           `🤖 AI generation attempt ${attempt}/${maxRetries} for query: "${query}"`,
         );
 
-        let prompt = `Generate ${count} practical, specific parenting tips **about exactly** "${query}".${keywordPin}
-Avoid drifting into unrelated areas.`;
-
-        if (Array.isArray(contentPreferences) && contentPreferences.length) {
-          let description = '';
-          if (contentPreferences.includes('Language Development')) {
-            description += '\n - Activities and tips that encourage vocabulary growth and communication skills.';
-          }
-          if (contentPreferences.includes('Early Science Skills')) {
-            description += '\n - Explorations and experiments that nurture curiosity and basic science thinking.';
-          }
-          if (contentPreferences.includes('Literacy Foundations')) {
-            description += '\n - Reading and pre-writing activities that build pre-literacy skills.';
-          }
-          if (contentPreferences.includes('Social-Emotional Learning')) {
-            description += '\n - Guidance for emotional regulation, relationship skills, and healthy self-awareness.';
-          }
-
-          prompt += `\n\nRestrict content to the following preferred themes where possible:${description}`;
+        // STRICT DOMAIN CONSTRAINT
+      let prompt = `You are a parenting assistant that ONLY provides tips in these 4 domains:
+      1. Language Development
+      2. Early Science Skills  
+      3. Literacy Foundations
+      4. Social-Emotional Learning
+      
+      Generate ${count} practical tips **strictly about** "${query}".${keywordPin}
+      
+      CRITICAL RULES:
+      - Stay within the 4 domains above
+      - Do NOT give advice about: discipline, sleep, eating, potty training, screen time, medical issues, or behavioral problems
+      - If the query touches multiple domains, focus on the most relevant one
+      - Be specific, actionable, and age-appropriate
+      - No general parenting advice outside the 4 domains`;
+      
+            if (Array.isArray(contentPreferences) && contentPreferences.length) {
+              const allowed = contentPreferences.filter(p => 
+                ['Language Development', 'Early Science Skills', 'Literacy Foundations', 'Social-Emotional Learning'].includes(p)
+              );
+              
+              if (allowed.length) {
+                prompt += `\n\nUser's selected domains: ${allowed.join(', ')}. Prioritize these.`;
+              }
+            }
+      
+            if (preferenceContext) {
+              prompt += `\n\nUser Context: ${preferenceContext}`;
+            }
+      
+            prompt += `\n\nReturn ONLY a JSON array with this structure:
+      [
+        {
+          "id": 1,
+          "title": "Brief title (max 50 chars)",
+          "body": "Main tip (2-3 sentences)",
+          "details": "Additional context",
+          "categories": ["domain_name"]
         }
-
-        if (preferenceContext) {
-          prompt += `\n\nPreference Context: ${preferenceContext}`;
-        }
-
-        prompt += `
-Each tip must:
-- Be practical and actionable
-- Be age-appropriate and safe
-- Be clearly relevant to "${query}" (no off-topic content)
-- Be unique (no duplicates)
-
-Return ONLY a pure JSON array with objects like:
-[
-  {
-    "id": 1,
-    "title": "Short catchy title",
-    "body": "Main tip content (2-3 sentences).",
-    "details": "Extra helpful details or explanation.",
-    "categories": ["relevant_category"]
-  }
-]`;
-
-        // Add timeout and better error handling
-        const response = await Promise.race([
-          openai.chat.completions.create({
-            model: process.env.OPENAI_TIPS_MODEL || 'gpt-3.5-turbo',
-            messages: [
-              {
-                role: 'system',
-                content: `${TIPS_SYSTEM_PROMPT}\n\nIMPORTANT: Output ONLY valid JSON (no markdown/code fences).`,
-              },
-              { role: 'user', content: prompt },
-            ],
-            temperature: 0.25, // lower for focus
-            max_tokens: 1400,
-          }),
-          // 25 second timeout
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('OpenAI request timeout after 25 seconds')), 25000),
-          ),
-        ]);
+      ]`;
+      
+            const response = await Promise.race([
+              openai.chat.completions.create({
+                model: process.env.OPENAI_TIPS_MODEL || 'gpt-3.5-turbo',
+                messages: [
+                  {
+                    role: 'system',
+                    content: `You are a parenting education specialist. You ONLY provide tips in: Language Development, Early Science Skills, Literacy Foundations, and Social-Emotional Learning. You NEVER give advice about discipline, sleep, nutrition, potty training, medical issues, or general behavioral problems. Output ONLY valid JSON.`,
+                  },
+                  { role: 'user', content: prompt },
+                ],
+                temperature: 0.3,
+                max_tokens: 1400,
+              }),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('OpenAI timeout')), 25000),
+              ),
+            ]);
 
         const raw = (response.choices?.[0]?.message?.content || '').trim();
         console.log('🤖 Raw OpenAI response length:', raw.length);

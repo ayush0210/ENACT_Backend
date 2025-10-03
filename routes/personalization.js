@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticateJWT } from './middleware.js';
 import personalizationService from '../services/personalizationService.js';
+import { isStrictlyInScope, REJECTION_MESSAGE } from '../utils/strictDomains.js';
 import pool from '../config/db.js';
 import {
   validateParentingQuery,
@@ -25,7 +26,7 @@ function looksLikeParentingPrompt(q) {
   const n = String(q || '').toLowerCase();
   const childHit = CHILD_TERMS.some(term => n.includes(term));
   const ageHit = AGE_PATTERNS.some(re => re.test(n));
-  return childHit || ageHit;
+  return childHit || ageHi
 }
 
 // If validator says "non_parenting" but our soft check says "this really is about kids",
@@ -453,70 +454,6 @@ function safeJSONParse(jsonString, fallback = []) {
   }
 }
 
-async function ensureTipExists(tipId, aiTip = {}) {
-  // If already a numeric DB id, return it as-is
-  if (/^\d+$/.test(String(tipId))) return Number(tipId);
-
-  const title = aiTip?.title || 'AI Tip';
-  const description = aiTip?.body || aiTip?.details || '';
-  const type = Array.isArray(aiTip?.categories) && aiTip.categories[0] ? aiTip.categories[0] : 'generated';
-
-  // Try to find an existing row with same content to avoid dupes
-  const [existing] = await pool.query(
-    `SELECT id FROM tips WHERE type = ? AND title = ? AND description = ? LIMIT 1`,
-    [type, title, description]
-  );
-  if (existing.length) return existing[0].id;
-
-  // Insert new tip
-  const [insert] = await pool.query(
-    `INSERT INTO tips (title, description, type) VALUES (?, ?, ?)`,
-    [title, description, type]
-  );
-  const newId = insert.insertId;
-
-  // Create embedding so it participates in personalization
-  try {
-    const embedding = await personalizationService.generateTipEmbedding({
-      title,
-      body: description,
-      details: '',
-    });
-    await personalizationService.storeTipEmbedding(newId, embedding);
-  } catch (e) {
-    console.warn('Failed to embed generated tip:', e.message);
-  }
-
-  return newId;
-}
-
-function buildSurveyContext(survey) {
-  const contentPrefs = safeJSONParse(survey.content_preferences);
-  const challenges = safeJSONParse(survey.challenge_areas);
-  const goals = safeJSONParse(survey.parenting_goals);
-
-  let context = '';
-
-  if (contentPrefs.length > 0) {
-    context += `User prefers ${contentPrefs.join(', ')} type content. `;
-  }
-
-  if (challenges.length > 0) {
-    context += `Current challenges include: ${challenges.join(', ')}. `;
-  }
-
-  if (goals.length > 0) {
-    context += `Parenting goals: ${goals.join(', ')}. `;
-  }
-
-  if (survey.current_challenge) {
-    context += `Specific current challenge: ${survey.current_challenge}. `;
-  }
-
-  return context;
-}
-
-// ---------- Survey endpoints (unchanged behaviorally except for helpers reuse) ----------
 router.post('/survey', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -583,10 +520,10 @@ router.post('/survey', authenticateJWT, async (req, res) => {
     );
 
     // Generate embeddings for survey preferences
-    await personalizationService.generateSurveyEmbeddings(userId, surveyData);
+    await generateSurveyEmbeddings(userId, surveyData);
 
     // Update combined preference profile
-    await personalizationService.updateCombinedPreferenceProfile(userId);
+    await updateCombinedPreferenceProfile(userId);
 
     res.status(200).json({
       success: true,
@@ -610,6 +547,7 @@ router.post('/survey', authenticateJWT, async (req, res) => {
   }
 });
 
+// Get user survey status
 router.get('/survey-status', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -634,6 +572,7 @@ router.get('/survey-status', authenticateJWT, async (req, res) => {
   }
 });
 
+// Get full survey data
 router.get('/survey', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -671,11 +610,15 @@ router.get('/survey', authenticateJWT, async (req, res) => {
   }
 });
 
-// Enhanced tips with survey integration (uses the service helpers)
+// Enhanced tips with survey integration
 router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { prompt, contentPreferences = [], generateMode = 'hybrid' } = req.body;
+    const {
+      prompt,
+      contentPreferences = [],
+      generateMode = 'hybrid',
+    } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
@@ -683,7 +626,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
 
     // Soft override handling
     let effectivePrompt = prompt;
-    const v = validateParentingQuery(prompt);
+    const v = isStrictlyInScope(prompt);
     if (!v.isValid) {
       if (looksLikeParentingPrompt(prompt)) {
         effectivePrompt = reframeAsParenting(
@@ -713,8 +656,8 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
     if (surveyData.length > 0) {
       const survey = surveyData[0];
       const userPrefs = safeJSONParse(survey.content_preferences);
-      safeJSONParse(survey.challenge_areas); // read to warm cache, not used here directly
-      safeJSONParse(survey.parenting_goals);
+      const userChallenges = safeJSONParse(survey.challenge_areas);
+      const userGoals = safeJSONParse(survey.parenting_goals);
 
       // Merge preferences
       enhancedContentPrefs = [...new Set([...enhancedContentPrefs, ...userPrefs])];
@@ -742,7 +685,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
       if (result.tips && result.tips.length > 0) {
         // Apply survey-based scoring boost
         if (hasSurveyData) {
-          result.tips = await personalizationService.applySurveyScoring(userId, result.tips);
+          result.tips = await applySurveyScoring(userId, result.tips);
         }
 
         return res.status(200).json({
@@ -755,7 +698,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
           message: hasSurveyData
             ? `Generated ${result.tips.length} personalized parenting tips about "${prompt}" based on your survey preferences!`
             : `Generated ${result.tips.length} parenting tips about "${prompt}"`,
-          surveyContext,
+          surveyContext: surveyContext,
         });
       }
     }
@@ -800,5 +743,396 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
     });
   }
 });
+
+// Survey analytics
+router.get('/survey-analytics', authenticateJWT, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [survey] = await pool.query('SELECT completed_at FROM user_survey_responses WHERE user_id = ?', [userId]);
+
+    if (survey.length === 0) {
+      return res.status(200).json({
+        hasCompletedSurvey: false,
+        analytics: null,
+        message: 'Complete the personalization survey to see your analytics',
+      });
+    }
+
+    const surveyDate = survey[0].completed_at;
+
+    // Get interaction metrics before and after survey
+    const [metrics] = await pool.query(
+      `
+      SELECT 
+        COUNT(CASE WHEN uti.created_at < ? THEN 1 END) as interactions_before,
+        COUNT(CASE WHEN uti.created_at >= ? THEN 1 END) as interactions_after,
+        COUNT(CASE WHEN uti.created_at < ? AND uti.interaction_type = 'like' THEN 1 END) as likes_before,
+        COUNT(CASE WHEN uti.created_at >= ? AND uti.interaction_type = 'like' THEN 1 END) as likes_after
+      FROM user_tip_interactions uti
+      WHERE uti.user_id = ?
+    `,
+      [surveyDate, surveyDate, surveyDate, surveyDate, userId]
+    );
+
+    const data = metrics[0];
+    const likeRateBefore = data.interactions_before > 0
+      ? (data.likes_before / data.interactions_before) * 100
+      : 0;
+    const likeRateAfter = data.interactions_after > 0
+      ? (data.likes_after / data.interactions_after) * 100
+      : 0;
+
+    const improvement = likeRateAfter - likeRateBefore;
+
+    res.status(200).json({
+      userId,
+      hasCompletedSurvey: true,
+      surveyCompletedAt: surveyDate,
+      analytics: {
+        interactionsBefore: data.interactions_before,
+        interactionsAfter: data.interactions_after,
+        likeRateBefore: Math.round(likeRateBefore * 10) / 10,
+        likeRateAfter: Math.round(likeRateAfter * 10) / 10,
+        improvement: Math.round(improvement * 10) / 10,
+        hasImprovement: improvement > 0,
+        message:
+          improvement > 5
+            ? `Your tip relevance improved by ${Math.round(improvement)}% after completing the survey!`
+            : data.interactions_after < 5
+              ? 'Keep interacting with tips to see your personalization improvement!'
+              : 'Your personalized tips are getting better as you use the app!',
+      },
+    });
+  } catch (error) {
+    console.error('Error getting survey analytics:', error);
+    res.status(500).json({
+      error: 'Failed to get survey analytics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
+// Helper functions
+async function generateSurveyEmbeddings(userId, surveyData) {
+  const { contentPreferences, challengeAreas, parentingGoals } = surveyData;
+
+  // Clear existing survey embeddings
+  await pool.query('DELETE FROM survey_preference_embeddings WHERE user_id = ?', [userId]);
+
+  const preferenceTypes = [
+    { type: 'content', values: contentPreferences },
+    { type: 'challenge', values: challengeAreas },
+    { type: 'goal', values: parentingGoals },
+  ];
+
+  for (const { type, values } of preferenceTypes) {
+    for (const value of values) {
+      try {
+        const descriptiveText = getDescriptiveText(type, value);
+        const embedding = await personalizationService.generateQueryEmbedding(descriptiveText);
+
+        await pool.query(
+          `
+          INSERT INTO survey_preference_embeddings 
+          (user_id, preference_type, preference_value, embedding)
+          VALUES (?, ?, ?, ?)
+        `,
+          [userId, type, value, JSON.stringify(embedding)]
+        );
+      } catch (error) {
+        console.error(`Error generating embedding for ${type}:${value}`, error);
+      }
+    }
+  }
+}
+
+function getDescriptiveText(type, value) {
+  const descriptions = {
+    content: {
+      activities: 'fun educational activities and games for children play time learning',
+      discipline: 'positive discipline strategies behavior management parenting techniques',
+      emotional: 'emotional support connection empathy understanding child feelings',
+      routines: 'daily routines structure schedules consistency parenting habits',
+      sleep: 'sleep help bedtime routines rest nighttime parenting',
+      nutrition: 'healthy eating nutrition meals food parenting feeding',
+      potty: 'potty training toilet training bathroom independence',
+      'screen-time': 'screen time management technology devices digital parenting',
+      travel: 'traveling with kids family trips vacation parenting',
+      'big-feelings': 'managing big emotions anxiety anger sadness parenting support',
+    },
+    challenge: {
+      tantrums: 'tantrum meltdown crying screaming upset child behavior',
+      bedtime: 'bedtime struggles sleep problems nighttime routine',
+      'picky-eating': 'picky eating food battles mealtime struggles nutrition',
+      'sibling-rivalry': 'sibling fighting rivalry jealousy sharing problems',
+      'screen-battles': 'screen time battles technology device conflicts',
+      'public-behavior': 'public behavior store restaurant outings social situations',
+      homework: 'homework resistance school work study struggles',
+      transitions: 'transitions difficulty changing activities leaving',
+    },
+    goal: {
+      patience: 'patience calm gentle understanding mindful parenting',
+      connection: 'connection bonding relationship closeness family time',
+      independence: 'independence self-reliance confidence capability building',
+      confidence: 'confidence self-esteem pride capability child development',
+      consistency: 'consistency routine structure reliable predictable parenting',
+      communication: 'communication talking listening understanding dialogue',
+      balance: 'work-life balance time management organization family',
+      stress: 'stress reduction calm peaceful relaxed parenting',
+    },
+  };
+
+  return descriptions[type]?.[value] || `${type} ${value} parenting help advice`;
+}
+
+function buildSurveyContext(survey) {
+  const contentPrefs = safeJSONParse(survey.content_preferences);
+  const challenges = safeJSONParse(survey.challenge_areas);
+  const goals = safeJSONParse(survey.parenting_goals);
+
+  let context = '';
+
+  if (contentPrefs.length > 0) {
+    context += `User prefers ${contentPrefs.join(', ')} type content. `;
+  }
+
+  if (challenges.length > 0) {
+    context += `Current challenges include: ${challenges.join(', ')}. `;
+  }
+
+  if (goals.length > 0) {
+    context += `Parenting goals: ${goals.join(', ')}. `;
+  }
+
+  if (survey.current_challenge) {
+    context += `Specific current challenge: ${survey.current_challenge}. `;
+  }
+
+  return context;
+}
+
+async function updateCombinedPreferenceProfile(userId) {
+  // This integrates survey data with your existing interaction-based preferences
+  // The survey embeddings will be combined with like/dislike embeddings
+
+  try {
+    // Get existing interaction-based preference
+    const [existingProfile] = await pool.query(
+      'SELECT preference_embedding FROM user_preference_profiles WHERE user_id = ?',
+      [userId]
+    );
+
+    let interactionEmbedding = null;
+    if (existingProfile.length > 0 && existingProfile[0].preference_embedding) {
+      interactionEmbedding = Array.isArray(existingProfile[0].preference_embedding)
+        ? existingProfile[0].preference_embedding
+        : JSON.parse(existingProfile[0].preference_embedding);
+    }
+
+    // Get survey-based preferences
+    const [surveyEmbeddings] = await pool.query(
+      'SELECT embedding FROM survey_preference_embeddings WHERE user_id = ?',
+      [userId]
+    );
+
+    if (surveyEmbeddings.length === 0) return;
+
+    // Average survey embeddings
+    const surveyVectors = surveyEmbeddings.map(row =>
+      Array.isArray(row.embedding) ? row.embedding : JSON.parse(row.embedding)
+    );
+
+    const dimension = surveyVectors[0].length;
+    const surveyAverage = new Array(dimension).fill(0);
+
+    for (const vector of surveyVectors) {
+      for (let i = 0; i < dimension; i++) {
+        surveyAverage[i] += vector[i];
+      }
+    }
+
+    for (let i = 0; i < dimension; i++) {
+      surveyAverage[i] /= surveyVectors.length;
+    }
+
+    // Combine with interaction data
+    let combinedEmbedding;
+    let surveyWeight = 0.7; // Start with high survey weight
+
+    if (interactionEmbedding) {
+      const [interactionCount] = await pool.query(
+        'SELECT COUNT(*) as count FROM user_tip_interactions WHERE user_id = ?',
+        [userId]
+      );
+
+      const interactions = interactionCount[0].count;
+      surveyWeight = Math.max(0.3, 0.7 - interactions * 0.02);
+
+      combinedEmbedding = surveyAverage.map(
+        (sv, i) => sv * surveyWeight + interactionEmbedding[i] * (1 - surveyWeight)
+      );
+    } else {
+      combinedEmbedding = surveyAverage;
+    }
+
+    // Normalize
+    const norm = Math.sqrt(combinedEmbedding.reduce((sum, val) => sum + val * val, 0));
+    if (norm > 0) {
+      combinedEmbedding = combinedEmbedding.map(val => val / norm);
+    }
+
+    // Update preference profile
+    await pool.query(
+      `
+      INSERT INTO user_preference_profiles 
+      (user_id, preference_embedding, survey_embedding, survey_weight, last_survey_update)
+      VALUES (?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+      preference_embedding = VALUES(preference_embedding),
+      survey_embedding = VALUES(survey_embedding),
+      survey_weight = VALUES(survey_weight),
+      last_survey_update = VALUES(last_survey_update)
+    `,
+      [userId, JSON.stringify(combinedEmbedding), JSON.stringify(surveyAverage), surveyWeight]
+    );
+  } catch (error) {
+    console.error('Error updating combined preference profile:', error);
+  }
+}
+
+async function applySurveyScoring(userId, tips) {
+  // Apply additional scoring based on survey preferences
+  const [surveyData] = await pool.query(
+    'SELECT content_preferences, challenge_areas, parenting_goals FROM user_survey_responses WHERE user_id = ?',
+    [userId]
+  );
+
+  if (surveyData.length === 0) return tips;
+
+  const survey = surveyData[0];
+  const contentPrefs = safeJSONParse(survey.content_preferences);
+  const challenges = safeJSONParse(survey.challenge_areas);
+  const goals = safeJSONParse(survey.parenting_goals);
+
+  return tips
+    .map(tip => {
+      let boost = 0;
+      const tipText = `${tip.title} ${tip.body} ${tip.details}`.toLowerCase();
+
+      // Content preference matching (boost by 5% per match)
+      contentPrefs.forEach(pref => {
+        const keywords = getKeywordsForPreference(pref);
+        const matches = keywords.filter(keyword => tipText.includes(keyword)).length;
+        boost += matches * 0.05;
+      });
+
+      // Challenge matching (boost by 8% per match)
+      challenges.forEach(challenge => {
+        const keywords = getKeywordsForChallenge(challenge);
+        const matches = keywords.filter(keyword => tipText.includes(keyword)).length;
+        boost += matches * 0.08;
+      });
+
+      // Goal matching (boost by 6% per match)
+      goals.forEach(goal => {
+        const keywords = getKeywordsForGoal(goal);
+        const matches = keywords.filter(keyword => tipText.includes(keyword)).length;
+        boost += matches * 0.06;
+      });
+
+      const newScore = Math.min((tip.similarity_score || 0.5) + boost, 1.0);
+
+      return {
+        ...tip,
+        similarity_score: Math.round(newScore * 1000) / 1000,
+        survey_boost: Math.round(boost * 1000) / 1000,
+        hasSurveyBoost: boost > 0,
+      };
+    })
+    .sort((a, b) => b.similarity_score - a.similarity_score);
+}
+
+// Upsert generated tips so they can be referenced by interactions/embeddings
+async function ensureTipExists(tipId, aiTip = {}) {
+  // If already a numeric DB id, return it as-is
+  if (/^\d+$/.test(String(tipId))) return Number(tipId);
+
+  const title = aiTip?.title || 'AI Tip';
+  const description = aiTip?.body || aiTip?.details || '';
+  const type = Array.isArray(aiTip?.categories) && aiTip.categories[0] ? aiTip.categories[0] : 'generated';
+
+  // Try to find an existing row with same content to avoid dupes
+  const [existing] = await pool.query(
+    `SELECT id FROM tips WHERE type = ? AND title = ? AND description = ? LIMIT 1`,
+    [type, title, description]
+  );
+  if (existing.length) return existing[0].id;
+
+  // Insert new tip
+  const [insert] = await pool.query(
+    `INSERT INTO tips (title, description, type) VALUES (?, ?, ?)`,
+    [title, description, type]
+  );
+  const newId = insert.insertId;
+
+  // Create embedding so it participates in personalization
+  try {
+    const embedding = await personalizationService.generateTipEmbedding({
+      title,
+      body: description,
+      details: '',
+    });
+    await personalizationService.storeTipEmbedding(newId, embedding);
+  } catch (e) {
+    console.warn('Failed to embed generated tip:', e.message);
+  }
+
+  return newId;
+}
+
+function getKeywordsForPreference(pref) {
+  const keywords = {
+    activities: ['activity', 'play', 'game', 'fun', 'creative'],
+    discipline: ['discipline', 'behavior', 'rules', 'consequences'],
+    emotional: ['emotion', 'feeling', 'comfort', 'support'],
+    routines: ['routine', 'schedule', 'consistency'],
+    sleep: ['sleep', 'bedtime', 'nap'],
+    nutrition: ['food', 'eating', 'meal', 'healthy'],
+    potty: ['potty', 'toilet', 'bathroom'],
+    'screen-time': ['screen', 'technology', 'device'],
+    travel: ['travel', 'car', 'trip'],
+    'big-feelings': ['anxiety', 'anger', 'frustrated'],
+  };
+  return keywords[pref] || [];
+}
+
+function getKeywordsForChallenge(challenge) {
+  const keywords = {
+    tantrums: ['tantrum', 'meltdown', 'crying', 'upset'],
+    bedtime: ['bedtime', 'sleep', 'night'],
+    'picky-eating': ['picky', 'eating', 'food'],
+    'sibling-rivalry': ['sibling', 'fighting', 'sharing'],
+    'screen-battles': ['screen', 'device', 'technology'],
+    'public-behavior': ['public', 'store', 'restaurant'],
+    homework: ['homework', 'school', 'study'],
+    transitions: ['transition', 'change', 'leaving'],
+  };
+  return keywords[challenge] || [];
+}
+
+function getKeywordsForGoal(goal) {
+  const keywords = {
+    patience: ['patience', 'calm', 'gentle'],
+    connection: ['connection', 'bond', 'relationship'],
+    independence: ['independence', 'self-reliant', 'confident'],
+    confidence: ['confidence', 'self-esteem', 'proud'],
+    consistency: ['consistency', 'routine', 'structure'],
+    communication: ['communication', 'talking', 'listening'],
+    balance: ['balance', 'time', 'manage'],
+    stress: ['stress', 'calm', 'relax'],
+  };
+  return keywords[goal] || [];
+}
 
 export default router;
