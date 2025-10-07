@@ -401,7 +401,7 @@ function hasMatch(text, patterns) {
 
 export function classifyParentingQuery(prompt) {
     const raw = prompt || '';
-    const q = hardNormalize(raw); // your hardened normalizer (lowercase, trim, etc.)
+    const q = hardNormalize(raw);
 
     // --- Re-check decoded variants (base64/hex) BEFORE anything else ---
     const decodedCandidates = [];
