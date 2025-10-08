@@ -11,7 +11,7 @@ import childrenRouter from './routes/children.js';
 import sessionRoutes from './routes/sessions.js';
 import dashboardRoutes from './routes/dashboard.js';
 import adminRoutes from './routes/adminRoutes.js';
-import personalizationRoutes from './routes/personalization.js'; // ← ADD THIS LINE
+import personalizationRoutes from './routes/personalization.js'; 
 const app = express();
 app.use(cors());
 import cookieParser from 'cookie-parser';
@@ -28,7 +28,7 @@ import authroutes from './routes/auth.js';
 app.use('/api/auth', authroutes);
 app.use('/api/home', user);
 app.use('/api/tips', tips);
-app.use('/api/personalization', personalizationRoutes); // ← ADD THIS LINE
+app.use('/api/personalization', personalizationRoutes);
 app.get('/', async (req, res) => {
 return res.send('Active');
 });
