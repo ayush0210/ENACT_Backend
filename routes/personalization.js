@@ -42,7 +42,7 @@ const AGE_PATTERNS = [
     /\b\d{1,2}\s?(?:months?|mos?)\s?old\b/i, // 18 months old
 ];
 
-function looksLikeParentingPrompt(q) {
+export function looksLikeParentingPrompt(q) {
     const n = String(q || '').toLowerCase();
     const childHit = CHILD_TERMS.some(term => n.includes(term));
     const ageHit = AGE_PATTERNS.some(re => re.test(n));
@@ -51,7 +51,7 @@ function looksLikeParentingPrompt(q) {
 
 // If validator says "non_parenting" but our soft check says "this really is about kids",
 // we can nudge the LLM by reframing the text once.
-function reframeAsParenting(
+export function reframeAsParenting(
     prompt,
     note = 'Please answer strictly as parenting advice for a child.',
 ) {
@@ -61,7 +61,7 @@ function reframeAsParenting(
 
 const router = express.Router();
 
-function categoryReply(category, originalQuery) {
+export function categoryReply(category, originalQuery) {
     const cfg =
         CATEGORY_RESPONSES[category] || CATEGORY_RESPONSES.non_parenting;
 
@@ -484,7 +484,7 @@ router.get('/profile', authenticateJWT, async (req, res) => {
     }
 });
 
-function safeJSONParse(jsonString, fallback = []) {
+export function safeJSONParse(jsonString, fallback = []) {
     try {
         if (!jsonString && jsonString !== 0) {
             return fallback;
@@ -746,15 +746,15 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             [userId],
         );
 
-        let enhancedContentPrefs = [...contentPreferences];
+        let enhancedContentPrefs = [];
         let surveyContext = '';
         let hasSurveyData = false;
 
         if (surveyData.length > 0) {
             const survey = surveyData[0];
             const userPrefs = safeJSONParse(survey.content_preferences);
-            const userChallenges = safeJSONParse(survey.challenge_areas);
-            const userGoals = safeJSONParse(survey.parenting_goals);
+            // const userChallenges = safeJSONParse(survey.challenge_areas);
+            // const userGoals = safeJSONParse(survey.parenting_goals);
 
             // Merge preferences
             enhancedContentPrefs = [
@@ -785,7 +785,10 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             if (result.tips && result.tips.length > 0) {
                 // Apply survey-based scoring boost
                 if (hasSurveyData) {
-                    result.tips = await applySurveyScoring(userId, result.tips);
+                    result.tips = await applySurveyScoring(
+                        result.tips,
+                        surveyData,
+                    );
                 }
 
                 return res.status(200).json({
@@ -1023,7 +1026,7 @@ function getDescriptiveText(type, value) {
     );
 }
 
-function buildSurveyContext(survey) {
+export function buildSurveyContext(survey) {
     const contentPrefs = safeJSONParse(survey.content_preferences);
     const challenges = safeJSONParse(survey.challenge_areas);
     const goals = safeJSONParse(survey.parenting_goals);
@@ -1154,12 +1157,12 @@ async function updateCombinedPreferenceProfile(userId) {
     }
 }
 
-async function applySurveyScoring(userId, tips) {
+async function applySurveyScoring(tips, surveyData) {
     // Apply additional scoring based on survey preferences
-    const [surveyData] = await pool.query(
-        'SELECT content_preferences, challenge_areas, parenting_goals FROM user_survey_responses WHERE user_id = ?',
-        [userId],
-    );
+    // const [surveyData] = await pool.query(
+    //     'SELECT content_preferences, challenge_areas, parenting_goals FROM user_survey_responses WHERE user_id = ?',
+    //     [userId],
+    // );
 
     if (surveyData.length === 0) return tips;
 
@@ -1168,43 +1171,66 @@ async function applySurveyScoring(userId, tips) {
     const challenges = safeJSONParse(survey.challenge_areas);
     const goals = safeJSONParse(survey.parenting_goals);
 
+    // Precompute a merged { keyword -> weight } map once
+    const keywordWeights = new Map();
+
+    // helper to add keywords with a weight
+    const addWeighted = (arr, getKeywordsFn, weight) => {
+        if (!Array.isArray(arr)) return;
+        for (const item of arr) {
+            const kws = getKeywordsFn(item) || [];
+            for (let i = 0; i < kws.length; i++) {
+                const kw = String(kws[i] || '').toLowerCase();
+                if (!kw) continue;
+                // de-dupe: if multiple prefs map to same kw, sum weights once
+                keywordWeights.set(kw, (keywordWeights.get(kw) || 0) + weight);
+            }
+        }
+    };
+
+    // Build the map from your three sources
+    addWeighted(contentPrefs, getKeywordsForPreference, 0.05);
+    addWeighted(challenges, getKeywordsForChallenge, 0.08);
+    addWeighted(goals, getKeywordsForGoal, 0.06);
+
+    // (Optional) If you expect a *lot* of keywords (e.g., > 60), a single regex
+    // can be faster than many includes() calls. Keep behavior identical by using
+    // substring matches (no word boundaries). Commented out by default.
+    // const bigList = [...keywordWeights.keys()].map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    // const megaRe = bigList.length ? new RegExp(bigList.join('|'), 'i') : null;
+
     return tips
         .map(tip => {
             let boost = 0;
-            const tipText =
-                `${tip.title} ${tip.body} ${tip.details}`.toLowerCase();
 
-            // Content preference matching (boost by 5% per match)
-            contentPrefs.forEach(pref => {
-                const keywords = getKeywordsForPreference(pref);
-                const matches = keywords.filter(keyword =>
-                    tipText.includes(keyword),
-                ).length;
-                boost += matches * 0.05;
-            });
+            // Build the searchable blob ONCE
+            const tipText = (
+                (tip.title || '') +
+                ' ' +
+                (tip.body || '') +
+                ' ' +
+                (tip.details || '')
+            ).toLowerCase();
 
-            // Challenge matching (boost by 8% per match)
-            challenges.forEach(challenge => {
-                const keywords = getKeywordsForChallenge(challenge);
-                const matches = keywords.filter(keyword =>
-                    tipText.includes(keyword),
-                ).length;
-                boost += matches * 0.08;
-            });
+            // Fast path: iterate keywords once, add weight when found
+            // (keeps your "at least one occurrence => +weight" semantics)
+            for (const [kw, weight] of keywordWeights) {
+                if (tipText.indexOf(kw) !== -1) boost += weight;
+            }
 
-            // Goal matching (boost by 6% per match)
-            goals.forEach(goal => {
-                const keywords = getKeywordsForGoal(goal);
-                const matches = keywords.filter(keyword =>
-                    tipText.includes(keyword),
-                ).length;
-                boost += matches * 0.06;
-            });
+            // If using the optional mega regex above, you can short-circuit tips that
+            // have no keywords at all (saves the loop for many negatives):
+            // if (megaRe && !megaRe.test(tipText)) {
+            //   // no matches at all -> boost stays 0
+            // } else {
+            //   for (const [kw, weight] of keywordWeights) {
+            //     if (tipText.indexOf(kw) !== -1) boost += weight;
+            //   }
+            // }
 
-            const newScore = Math.min(
-                (tip.similarity_score || 0.5) + boost,
-                1.0,
-            );
+            const base =
+                tip.similarity_score == null ? 0.5 : tip.similarity_score;
+            const newScore = base + boost > 1 ? 1 : base + boost;
 
             return {
                 ...tip,
@@ -1213,7 +1239,56 @@ async function applySurveyScoring(userId, tips) {
                 hasSurveyBoost: boost > 0,
             };
         })
-        .sort((a, b) => b.similarity_score - a.similarity_score);
+        .sort((a, b) => {
+            b.similarity_score - a.similarity_score;
+        });
+
+    // return tips
+    //     .map(tip => {
+    //         let boost = 0;
+    //         const tipText =
+    //             `${tip.title} ${tip.body} ${tip.details}`.toLowerCase();
+
+    //         // Content preference matching (boost by 5% per match)
+    //         contentPrefs.forEach(pref => {
+    //             const keywords = getKeywordsForPreference(pref);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.05;
+    //         });
+
+    //         // Challenge matching (boost by 8% per match)
+    //         challenges.forEach(challenge => {
+    //             const keywords = getKeywordsForChallenge(challenge);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.08;
+    //         });
+
+    //         // Goal matching (boost by 6% per match)
+    //         goals.forEach(goal => {
+    //             const keywords = getKeywordsForGoal(goal);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.06;
+    //         });
+
+    //         const newScore = Math.min(
+    //             (tip.similarity_score || 0.5) + boost,
+    //             1.0,
+    //         );
+
+    //         return {
+    //             ...tip,
+    //             similarity_score: Math.round(newScore * 1000) / 1000,
+    //             survey_boost: Math.round(boost * 1000) / 1000,
+    //             hasSurveyBoost: boost > 0,
+    //         };
+    //     })
+    //     .sort((a, b) => b.similarity_score - a.similarity_score);
 }
 
 // Upsert generated tips so they can be referenced by interactions/embeddings
