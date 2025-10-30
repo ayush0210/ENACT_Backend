@@ -1,7 +1,8 @@
-const express = require('express');
+import express from 'express';
+import pool from '../config/db.js';
+import { authenticateJWT } from './middleware.js';
+
 const router = express.Router();
-const pool = require('../config/db');
-const { authenticateJWT } = require('./middleware');
 
 // Get children information for a user
 router.get('/children', authenticateJWT, async (req, res) => {
@@ -147,8 +148,8 @@ router.delete('/children/:id', authenticateJWT, async (req, res) => {
             [childId, user_id],
         );
 
-        const data = await connection.query('SELECT * FROM children')
-        console.log(data)
+        const data = await connection.query('SELECT * FROM children');
+        console.log(data);
 
         if (childRows.length === 0) {
             await connection.rollback();
@@ -183,4 +184,4 @@ router.delete('/children/:id', authenticateJWT, async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

@@ -1,12 +1,13 @@
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const pool = require('../config/db');
-const { authenticateJWT } = require('./middleware');
-const express = require('express');
-const router = express.Router();
-const nodemailer = require('nodemailer');
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import pool from '../config/db.js';
+import { authenticateJWT } from './middleware.js';
+import express from 'express';
+import nodemailer from 'nodemailer';
 import sgMail from '@sendgrid/mail';
+
+const router = express.Router();
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -154,6 +155,7 @@ const register = async (req, res) => {
         }
     }
 };
+
 // Login handler
 const login = async (req, res) => {
     const { email, password } = req.body;
@@ -323,102 +325,6 @@ const refreshAccessToken = async (req, res) => {
     }
 };
 
-// const requestPasswordReset = async (req, res) => {
-//   const { email } = req.body;
-
-//   try {
-//     // Check if user exists
-//     const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-
-//     if (users.length === 0) {
-//       return res.status(404).json({ message: 'User not found' });
-//     }
-
-//     // Generate reset token
-//     const resetToken = crypto.randomBytes(32).toString('hex');
-//     const hashedResetToken = await bcrypt.hash(resetToken, 12);
-
-//     // Set token expiration (1 hour from now)
-//     const expiryDate = new Date(Date.now() + 3600000);
-
-//     // Save reset token and expiry in database
-//     await pool.query(
-//       'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE email = ?',
-//       [hashedResetToken, expiryDate, email]
-//     );
-
-//     // Create email transporter
-//     const transporter = nodemailer.createTransport({
-//       host: 'smtp.gmail.com',
-//       port: 587,
-//       secure: false,
-//       auth: {
-//         user: process.env.EMAIL_USER,
-//         pass: process.env.EMAIL_PASS
-//       }
-//     });
-
-//     // Reset link (update with your frontend URL)
-//     // In requestPasswordReset function
-// const androidDeepLink = `intent://reset-password/${resetToken}#Intent;scheme=talkaroundtown;package=com.talk_around_town_trail;end`;
-// const iosDeepLink = `talkaroundtown://reset-password/${resetToken}`;
-// const webFallbackLink = `http://68.183.102.75:1337/reset-password/${resetToken}`;
-
-// await transporter.sendMail({
-//   from: process.env.EMAIL_USER,
-//   to: email,
-//   subject: 'Password Reset Request',
-//   html: `
-//     <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-//       <h1 style="color: #4A90E2; text-align: center;">Password Reset Request</h1>
-//       <p style="color: #666; font-size: 16px;">You requested a password reset for your Talk Around Town account.</p>
-//       <div style="text-align: center; margin: 30px 0;">
-//         <a href="${androidDeepLink}"
-//            style="background-color: #4A90E2;
-//                   color: white;
-//                   padding: 12px 30px;
-//                   text-decoration: none;
-//                   border-radius: 5px;
-//                   display: inline-block;
-//                   font-size: 16px;
-//                   margin-bottom: 15px;">
-//           Reset Password (Android)
-//         </a>
-//         <br/>
-//         <a href="${iosDeepLink}"
-//            style="background-color: #4A90E2;
-//                   color: white;
-//                   padding: 12px 30px;
-//                   text-decoration: none;
-//                   border-radius: 5px;
-//                   display: inline-block;
-//                   font-size: 16px;">
-//           Reset Password (iOS)
-//         </a>
-//         <p style="margin-top: 20px; color: #666;">Or copy and paste this code in the app:</p>
-//         <p style="color: #4A90E2; font-size: 18px; font-family: monospace; background: #f5f5f5; padding: 10px; border-radius: 5px;">${resetToken}</p>
-//       </div>
-//       <p style="color: #666; font-size: 14px;">This code will expire in 1 hour.</p>
-//       <p style="color: #999; font-size: 14px;">If you didn't request this, please ignore this email.</p>
-//       <p style="color: #999; font-size: 12px;">For security, this code will only work once.</p>
-//     </div>
-//   `
-// });
-
-//     res.status(200).json({
-//       message: 'Password reset instructions sent to email',
-//       success: true
-//     });
-
-//   } catch (error) {
-//     console.error('Password reset request error:', error);
-//     res.status(500).json({
-//       message: 'Error processing password reset request',
-//       error: process.env.NODE_ENV === 'development' ? error.message : undefined
-//     });
-//   }
-// };
-
 const requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
@@ -512,12 +418,6 @@ const resetPassword = async (req, res) => {
             'SELECT id, email, reset_token, reset_token_expires FROM users WHERE reset_token_expires > NOW()',
         );
 
-        const user = users.find(async user => {
-            if (!user.reset_token) return false;
-            return await bcrypt.compare(token, user.reset_token);
-        });
-
-        // To this:
         let foundUser = null;
         for (const user of users) {
             if (!user.reset_token) continue;
@@ -557,6 +457,7 @@ const resetPassword = async (req, res) => {
         });
     }
 };
+
 const deleteAccount = async (req, res) => {
     const userId = req.user.id; // User ID from JWT token
 
@@ -598,7 +499,6 @@ const deleteAccount = async (req, res) => {
         );
 
         // Delete tips related to this user (if applicable)
-        // Note: Adjust this if your tips table doesn't have a user_id column
         try {
             const [tipsResult] = await connection.query(
                 'DELETE FROM tips WHERE user_id = ?',
@@ -606,7 +506,6 @@ const deleteAccount = async (req, res) => {
             );
             console.log(`Deleted ${tipsResult.affectedRows} tip records`);
         } catch (error) {
-            // Skip if table doesn't exist or column doesn't exist
             console.log(
                 'No tips records deleted - table might not have user_id column',
             );
@@ -807,7 +706,6 @@ const token = async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 };
-// Add this to your auth.js or create a new route file
 
 const testEmail = async (req, res) => {
     try {
@@ -849,6 +747,7 @@ const testEmail = async (req, res) => {
         });
     }
 };
+
 // Get device tokens
 const getDeviceTokens = async (req, res) => {
     const user_id = req.user.id;
@@ -887,4 +786,4 @@ router.post('/test-email', testEmail);
 router.delete('/delete-account', authenticateJWT, deleteAccount);
 router.post('/change-password', authenticateJWT, changePassword);
 
-module.exports = router;
+export default router;

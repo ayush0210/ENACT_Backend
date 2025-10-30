@@ -6,15 +6,21 @@ import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import url from 'url';
 import http from 'http';
-import location from './routes/location.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import 'dotenv/config';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
+
+// Import routes
+import location from './routes/location.js';
 import user from './routes/user.js';
 import tips from './routes/tips.js';
 import childrenRouter from './routes/children.js';
 import sessionRoutes from './routes/sessions.js';
 import dashboardRoutes from './routes/dashboard.js';
 import adminRoutes from './routes/adminRoutes.js';
+import authroutes from './routes/auth.js';
 import personalizationRoutes, {
     buildSurveyContext,
     categoryReply,
@@ -22,32 +28,41 @@ import personalizationRoutes, {
     reframeAsParenting,
     safeJSONParse,
 } from './routes/personalization.js';
+
+// Import utilities and services
+import { isStrictlyInScope } from './utils/strictDomains.js';
+import pool from './config/db.js';
+import personalizationService from './services/personalizationService.js';
+
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const app = express();
+
+// Middleware
 app.use(cors());
-import cookieParser from 'cookie-parser';
-require('dotenv').config({ path: path.join(__dirname, '.env') });
 app.use(morgan('dev'));
 app.use(cookieParser('session'));
 app.use(body.json());
 app.use(body.urlencoded({ extended: true }));
+
+// Routes
 app.use('/endpoint', childrenRouter);
+app.use('/endpoint', location);
 app.use('/endpoint/session', sessionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminRoutes);
-import authroutes from './routes/auth.js';
-import { isStrictlyInScope } from './utils/strictDomains.js';
-import pool from './config/db.js';
-import personalizationService from './services/personalizationService.js';
 app.use('/api/auth', authroutes);
 app.use('/api/home', user);
 app.use('/api/tips', tips);
 app.use('/api/personalization', personalizationRoutes);
 
 // --- WS server wiring ---
-const server = http.createServer(app); // 👈 wrap express
+const server = http.createServer(app);
 const wss = new WebSocketServer({
     server,
-    path: '/ws/personalization', // 👈 WS path
+    path: '/ws/personalization',
 });
 
 function sendJSON(ws, obj) {
@@ -57,7 +72,8 @@ function sendJSON(ws, obj) {
 wss.on('connection', async (ws, req) => {
     const openedAt = Date.now();
     console.log(`[WS] Client connected`);
-    // ---- simple JWT check on handshake (?token=...) ----
+    
+    // JWT check on handshake (?token=...)
     const { query } = url.parse(req.url, true);
     try {
         if (!query?.token) throw new Error('Missing token');
@@ -105,7 +121,7 @@ wss.on('connection', async (ws, req) => {
                 return ws.close();
             }
 
-            // --- your scope checks (same as REST) ---
+            // Scope checks
             let effectivePrompt = prompt;
             const v = isStrictlyInScope(prompt);
             if (!v.isValid) {
@@ -121,7 +137,7 @@ wss.on('connection', async (ws, req) => {
                 }
             }
 
-            // --- survey context (same SQL as REST) ---
+            // Survey context
             const [surveyRows] = await pool.query(
                 'SELECT content_preferences, challenge_areas, parenting_goals, current_challenge FROM user_survey_responses WHERE user_id = ?',
                 [userId],
@@ -148,7 +164,7 @@ wss.on('connection', async (ws, req) => {
                 effectivePrompt,
             });
 
-            // --- stream AI tips first ---
+            // Stream AI tips
             let emitted = 0;
             if (generateMode === 'generate' || generateMode === 'hybrid') {
                 await personalizationService.generateTipsStreamNDJSON({
@@ -181,7 +197,7 @@ wss.on('connection', async (ws, req) => {
                 });
             }
 
-            // --- DB fallback if AI produced nothing ---
+            // DB fallback if AI produced nothing
             if (
                 emitted === 0 &&
                 (generateMode === 'database' || generateMode === 'hybrid')
@@ -218,9 +234,9 @@ wss.on('connection', async (ws, req) => {
 app.get('/', async (req, res) => {
     return res.send('Active');
 });
-app.use('/endpoint', location);
+
 const port = process.env.PORT || 1337;
 server.listen(port, err => {
     if (err) console.log(err);
-    else console.log(err || 'Listening on port ' + port);
+    else console.log('Listening on port ' + port);
 });

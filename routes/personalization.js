@@ -64,7 +64,6 @@ const router = express.Router();
 export function categoryReply(category, originalQuery) {
     const cfg =
         CATEGORY_RESPONSES[category] || CATEGORY_RESPONSES.non_parenting;
-
     // You can tailor suggestion seeds here by category if you want
     const suggestions = [
         'Ask about a calming bedtime routine',
@@ -89,18 +88,15 @@ router.post('/interactions', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const { tipId, interactionType, tipPayload } = req.body;
-
         const validTypes = ['like', 'dislike', 'save', 'unsave'];
         if (!validTypes.includes(interactionType)) {
             return res.status(400).json({
                 error: 'Invalid interaction type. Must be one of: like, dislike, save, unsave',
             });
         }
-
         if (!tipId) {
             return res.status(400).json({ error: 'Tip ID is required' });
         }
-
         let finalTipId = tipId;
         if (String(tipId).startsWith('generated_')) {
             finalTipId = await personalizationService.upsertGeneratedTip(
@@ -108,13 +104,11 @@ router.post('/interactions', authenticateJWT, async (req, res) => {
                 tipPayload,
             );
         }
-
         await personalizationService.trackUserInteraction(
             userId,
             finalTipId,
             interactionType,
         );
-
         res.status(200).json({
             message: 'Interaction tracked successfully',
             userId,
@@ -138,12 +132,10 @@ router.get('/recommendations', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const limit = parseInt(req.query.limit) || 10;
-
         const tips = await personalizationService.getPersonalizedTips(
             userId,
             limit,
         );
-
         res.status(200).json({
             tips,
             userId,
@@ -170,7 +162,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
             contentPreferences = [],
             generateMode = 'hybrid',
         } = req.body;
-
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
@@ -195,7 +186,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
         );
 
         let result = null;
-
         if (generateMode === 'generate') {
             // Pure AI mode (respect contentPreferences)
             result =
@@ -205,7 +195,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                     5,
                     contentPreferences,
                 );
-
             return res.status(200).json({
                 tips: result.tips,
                 isPersonalized: result.isPersonalized,
@@ -225,7 +214,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                 3,
                 contentPreferences,
             );
-
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -247,7 +235,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                 3,
                 contentPreferences,
             );
-
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -272,7 +259,6 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                     3,
                     contentPreferences,
                 );
-
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -317,7 +303,6 @@ router.post('/generate-tips', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const { prompt, count = 5, contentPreferences = [] } = req.body;
-
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
@@ -348,7 +333,6 @@ router.post('/generate-tips', authenticateJWT, async (req, res) => {
                 count,
                 contentPreferences,
             );
-
         res.status(200).json({
             tips: result.tips,
             isPersonalized: result.isPersonalized,
@@ -393,12 +377,10 @@ router.post('/ai-interactions/batch', authenticateJWT, async (req, res) => {
         }
 
         let persisted = 0;
-
         for (const item of interactions) {
             // accept either interactionType or kind
             const interactionType = item?.interactionType || item?.kind;
             const rawTipId = item?.tipId;
-
             if (
                 !interactionType ||
                 !['like', 'dislike', 'save', 'unsave'].includes(interactionType)
@@ -440,7 +422,6 @@ router.post('/ai-interactions/batch', authenticateJWT, async (req, res) => {
 router.get('/profile', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-
         const [profile] = await pool.query(
             `
       SELECT 
@@ -489,12 +470,10 @@ export function safeJSONParse(jsonString, fallback = []) {
         if (!jsonString && jsonString !== 0) {
             return fallback;
         }
-
         // If it's already an array, return it
         if (Array.isArray(jsonString)) {
             return jsonString;
         }
-
         // If it's a string, try to parse it
         if (typeof jsonString === 'string') {
             // Handle case where it might just be a comma-separated string
@@ -505,14 +484,11 @@ export function safeJSONParse(jsonString, fallback = []) {
                     .map(item => item.trim())
                     .filter(Boolean);
             }
-
             return JSON.parse(jsonString);
         }
-
         return fallback;
     } catch (error) {
         console.error('JSON parse error:', error.message, 'Input:', jsonString);
-
         // Try to salvage the data if it's comma-separated
         if (typeof jsonString === 'string' && jsonString.includes(',')) {
             return jsonString
@@ -520,12 +496,10 @@ export function safeJSONParse(jsonString, fallback = []) {
                 .map(item => item.trim())
                 .filter(Boolean);
         }
-
         // If it's a single value, wrap it in an array
         if (typeof jsonString === 'string' && jsonString.length > 0) {
             return [jsonString.trim()];
         }
-
         return fallback;
     }
 }
@@ -534,7 +508,6 @@ router.post('/survey', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const { surveyData } = req.body;
-
         if (!surveyData) {
             return res.status(400).json({ error: 'Survey data is required' });
         }
@@ -637,7 +610,6 @@ router.post('/survey', authenticateJWT, async (req, res) => {
 router.get('/survey-status', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-
         const [survey] = await pool.query(
             'SELECT completed_at, updated_at FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -665,7 +637,6 @@ router.get('/survey-status', authenticateJWT, async (req, res) => {
 router.get('/survey', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-
         const [survey] = await pool.query(
             'SELECT * FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -716,7 +687,6 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             contentPreferences = [],
             generateMode = 'hybrid',
         } = req.body;
-
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
@@ -767,7 +737,6 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         }
 
         let result = null;
-
         if (generateMode === 'generate' || generateMode === 'hybrid') {
             // Try AI generation with survey context
             const enhancedPrompt = surveyContext
@@ -829,7 +798,6 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         }
 
         // No results found
-
         res.status(200).json({
             tips: [],
             isPersonalized: hasSurveyData,
@@ -855,7 +823,6 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
 router.get('/survey-analytics', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-
         const [survey] = await pool.query(
             'SELECT completed_at FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -895,7 +862,6 @@ router.get('/survey-analytics', authenticateJWT, async (req, res) => {
             data.interactions_after > 0
                 ? (data.likes_after / data.interactions_after) * 100
                 : 0;
-
         const improvement = likeRateAfter - likeRateBefore;
 
         res.status(200).json({
@@ -913,8 +879,8 @@ router.get('/survey-analytics', authenticateJWT, async (req, res) => {
                     improvement > 5
                         ? `Your tip relevance improved by ${Math.round(improvement)}% after completing the survey!`
                         : data.interactions_after < 5
-                          ? 'Keep interacting with tips to see your personalization improvement!'
-                          : 'Your personalized tips are getting better as you use the app!',
+                        ? 'Keep interacting with tips to see your personalization improvement!'
+                        : 'Your personalized tips are getting better as you use the app!',
             },
         });
     } catch (error) {
@@ -1032,30 +998,24 @@ export function buildSurveyContext(survey) {
     const goals = safeJSONParse(survey.parenting_goals);
 
     let context = '';
-
     if (contentPrefs.length > 0) {
         context += `User prefers ${contentPrefs.join(', ')} type content. `;
     }
-
     if (challenges.length > 0) {
         context += `Current challenges include: ${challenges.join(', ')}. `;
     }
-
     if (goals.length > 0) {
         context += `Parenting goals: ${goals.join(', ')}. `;
     }
-
     if (survey.current_challenge) {
         context += `Specific current challenge: ${survey.current_challenge}. `;
     }
-
     return context;
 }
 
 async function updateCombinedPreferenceProfile(userId) {
     // This integrates survey data with your existing interaction-based preferences
     // The survey embeddings will be combined with like/dislike embeddings
-
     try {
         // Get existing interaction-based preference
         const [existingProfile] = await pool.query(
@@ -1089,7 +1049,6 @@ async function updateCombinedPreferenceProfile(userId) {
                 ? row.embedding
                 : JSON.parse(row.embedding),
         );
-
         const dimension = surveyVectors[0].length;
         const surveyAverage = new Array(dimension).fill(0);
 
@@ -1098,7 +1057,6 @@ async function updateCombinedPreferenceProfile(userId) {
                 surveyAverage[i] += vector[i];
             }
         }
-
         for (let i = 0; i < dimension; i++) {
             surveyAverage[i] /= surveyVectors.length;
         }
@@ -1112,7 +1070,6 @@ async function updateCombinedPreferenceProfile(userId) {
                 'SELECT COUNT(*) as count FROM user_tip_interactions WHERE user_id = ?',
                 [userId],
             );
-
             const interactions = interactionCount[0].count;
             surveyWeight = Math.max(0.3, 0.7 - interactions * 0.02);
 
@@ -1159,11 +1116,6 @@ async function updateCombinedPreferenceProfile(userId) {
 
 async function applySurveyScoring(tips, surveyData) {
     // Apply additional scoring based on survey preferences
-    // const [surveyData] = await pool.query(
-    //     'SELECT content_preferences, challenge_areas, parenting_goals FROM user_survey_responses WHERE user_id = ?',
-    //     [userId],
-    // );
-
     if (surveyData.length === 0) return tips;
 
     const survey = surveyData[0];
@@ -1193,16 +1145,9 @@ async function applySurveyScoring(tips, surveyData) {
     addWeighted(challenges, getKeywordsForChallenge, 0.08);
     addWeighted(goals, getKeywordsForGoal, 0.06);
 
-    // (Optional) If you expect a *lot* of keywords (e.g., > 60), a single regex
-    // can be faster than many includes() calls. Keep behavior identical by using
-    // substring matches (no word boundaries). Commented out by default.
-    // const bigList = [...keywordWeights.keys()].map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    // const megaRe = bigList.length ? new RegExp(bigList.join('|'), 'i') : null;
-
     return tips
         .map(tip => {
             let boost = 0;
-
             // Build the searchable blob ONCE
             const tipText = (
                 (tip.title || '') +
@@ -1213,20 +1158,9 @@ async function applySurveyScoring(tips, surveyData) {
             ).toLowerCase();
 
             // Fast path: iterate keywords once, add weight when found
-            // (keeps your "at least one occurrence => +weight" semantics)
             for (const [kw, weight] of keywordWeights) {
                 if (tipText.indexOf(kw) !== -1) boost += weight;
             }
-
-            // If using the optional mega regex above, you can short-circuit tips that
-            // have no keywords at all (saves the loop for many negatives):
-            // if (megaRe && !megaRe.test(tipText)) {
-            //   // no matches at all -> boost stays 0
-            // } else {
-            //   for (const [kw, weight] of keywordWeights) {
-            //     if (tipText.indexOf(kw) !== -1) boost += weight;
-            //   }
-            // }
 
             const base =
                 tip.similarity_score == null ? 0.5 : tip.similarity_score;
@@ -1239,56 +1173,7 @@ async function applySurveyScoring(tips, surveyData) {
                 hasSurveyBoost: boost > 0,
             };
         })
-        .sort((a, b) => {
-            b.similarity_score - a.similarity_score;
-        });
-
-    // return tips
-    //     .map(tip => {
-    //         let boost = 0;
-    //         const tipText =
-    //             `${tip.title} ${tip.body} ${tip.details}`.toLowerCase();
-
-    //         // Content preference matching (boost by 5% per match)
-    //         contentPrefs.forEach(pref => {
-    //             const keywords = getKeywordsForPreference(pref);
-    //             const matches = keywords.filter(keyword =>
-    //                 tipText.includes(keyword),
-    //             ).length;
-    //             boost += matches * 0.05;
-    //         });
-
-    //         // Challenge matching (boost by 8% per match)
-    //         challenges.forEach(challenge => {
-    //             const keywords = getKeywordsForChallenge(challenge);
-    //             const matches = keywords.filter(keyword =>
-    //                 tipText.includes(keyword),
-    //             ).length;
-    //             boost += matches * 0.08;
-    //         });
-
-    //         // Goal matching (boost by 6% per match)
-    //         goals.forEach(goal => {
-    //             const keywords = getKeywordsForGoal(goal);
-    //             const matches = keywords.filter(keyword =>
-    //                 tipText.includes(keyword),
-    //             ).length;
-    //             boost += matches * 0.06;
-    //         });
-
-    //         const newScore = Math.min(
-    //             (tip.similarity_score || 0.5) + boost,
-    //             1.0,
-    //         );
-
-    //         return {
-    //             ...tip,
-    //             similarity_score: Math.round(newScore * 1000) / 1000,
-    //             survey_boost: Math.round(boost * 1000) / 1000,
-    //             hasSurveyBoost: boost > 0,
-    //         };
-    //     })
-    //     .sort((a, b) => b.similarity_score - a.similarity_score);
+        .sort((a, b) => b.similarity_score - a.similarity_score);
 }
 
 // Upsert generated tips so they can be referenced by interactions/embeddings

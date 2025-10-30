@@ -1,27 +1,31 @@
-const express = require('express');
-const axios = require('axios');
-const admin = require('firebase-admin');
-const pool = require('../config/db');
-// const { authenticateJWT } = require('./middleware');
-const { authenticateJWT } = require('./middleware');
-const serviceAccount = require('../key.json');
-const router = express.Router();
-// if (!admin.apps.length) {
-// admin.initializeApp({
-//     credential: admin.credential.applicationDefault(),
-// });
-// }
+import express from 'express';
+import axios from 'axios';
+import admin from 'firebase-admin';
+import pool from '../config/db.js';
+import { authenticateJWT } from './middleware.js';
+import { GoogleAuth } from 'google-auth-library';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const { GoogleAuth } = require('google-auth-library');
-// import serviceAccount from '../key.json';
-// import authenticateJWT from './middleware';
-// const pool = require('../config/db');
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load service account key
+const serviceAccount = JSON.parse(
+    readFileSync(join(__dirname, '../key.json'), 'utf-8')
+);
+
+const router = express.Router();
+
 const auth = new GoogleAuth({
-    // keyFile: '../key.json',
     scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
 });
+
 const fcmSendEndpoint =
     'https://fcm.googleapis.com/v1/projects/talk-around-town-423916-ec889/messages:send';
+
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
 });
@@ -99,6 +103,7 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
 router.delete('/deleteLocation', authenticateJWT, async (req, res) => {
     try {
         // Get user_id from req.user
@@ -142,6 +147,7 @@ router.delete('/deleteLocation', authenticateJWT, async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
+
 router.post('/tips', authenticateJWT, async (req, res) => {
     // get tips from db
     // first get userid from req.user
@@ -199,7 +205,7 @@ router.post('/locations', authenticateJWT, async (req, res) => {
         return colors[randomIndex];
     };
 
-const details = rows.map(row => ({
+    const details = rows.map(row => ({
         id: row.id,
         title: row.name,
         description: row.desc,
@@ -211,71 +217,72 @@ const details = rows.map(row => ({
 });
 
 const sendNotification = async (deviceToken, title, body, data, isIOS) => {
-  try {
-    console.log('Preparing to send notification:', {
-      platform: isIOS ? 'iOS' : 'Android',
-      tokenPrefix: deviceToken.substring(0, 10),
-      projectId: 'talk-around-town-423916-ec889',
-    });
+    try {
+        console.log('Preparing to send notification:', {
+            platform: isIOS ? 'iOS' : 'Android',
+            tokenPrefix: deviceToken.substring(0, 10),
+            projectId: 'talk-around-town-423916-ec889',
+        });
 
-    const isValid = await validateFCMToken(deviceToken);
-    if (!isValid) {
-      const query = isIOS
-        ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
-        : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
-      await pool.query(query, [deviceToken]);
-      throw new Error('Invalid FCM token - removed from database');
+        const isValid = await validateFCMToken(deviceToken);
+        if (!isValid) {
+            const query = isIOS
+                ? 'UPDATE users SET ios_token = NULL WHERE ios_token = ?'
+                : 'UPDATE users SET android_token = NULL WHERE android_token = ?';
+            await pool.query(query, [deviceToken]);
+            throw new Error('Invalid FCM token - removed from database');
+        }
+
+        // Define your message
+        const message = {
+            token: deviceToken,
+            notification: {
+                title,
+                body,
+            },
+            data: data || {},
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'location-tips',
+                    priority: 'high',
+                    defaultSound: true,
+                },
+            },
+            apns: isIOS
+                ? {
+                      payload: {
+                          aps: {
+                              alert: { title, body },
+                              sound: 'default',
+                              badge: 1,
+                              'content-available': 1,
+                              'mutable-content': 1,
+                          },
+                      },
+                      headers: {
+                          'apns-priority': '10',
+                      },
+                  }
+                : {},
+        };
+
+        console.log('Sending message:', JSON.stringify(message, null, 2));
+        
+        // Send using Firebase Admin SDK - this is cleaner than using axios
+        const response = await admin.messaging().send(message);
+        console.log('Notification sent successfully:', response);
+        return response;
+    } catch (error) {
+        console.error('Notification error:', {
+            code: error.errorInfo?.code,
+            message: error.errorInfo?.message,
+            stack: error.stack,
+        });
+        throw error;
     }
-
-    // Define your message
-    const message = {
-      token: deviceToken,
-      notification: {
-        title,
-        body,
-      },
-      data: data || {},
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'location-tips',
-          priority: 'high',
-          defaultSound: true,
-        },
-      },
-      apns: isIOS
-        ? {
-            payload: {
-              aps: {
-                alert: { title, body },
-                sound: 'default',
-                badge: 1,
-                'content-available': 1,
-                'mutable-content': 1,
-              },
-            },
-            headers: {
-              'apns-priority': '10',
-            },
-          }
-        : {},
-    };
-
-    console.log('Sending message:', JSON.stringify(message, null, 2));
-    
-    // Send using Firebase Admin SDK - this is cleaner than using axios
-    const response = await admin.messaging().send(message);
-    console.log('Notification sent successfully:', response);
-    return response;
-  } catch (error) {
-    console.error('Notification error:', {
-      code: error.errorInfo?.code,
-      message: error.errorInfo?.message,
-      stack: error.stack,
-    });
-    throw error;
-  }
 };
+
 const notificationCache = new Map();
 
 router.post('/', authenticateJWT, async (req, res) => {
@@ -342,13 +349,14 @@ router.post('/', authenticateJWT, async (req, res) => {
         }
 
         // Check for recent notifications
-const [notifs] = await pool.query(
-    `SELECT COUNT(*) AS notification_count
-     FROM notifications
-     WHERE user_id = ? AND loc_id = ?
-     AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 6 HOUR;`,
-    [user_id, nearbyLocation.id],
-);
+        const [notifs] = await pool.query(
+            `SELECT COUNT(*) AS notification_count
+             FROM notifications
+             WHERE user_id = ? AND loc_id = ?
+             AND timestamp >= CURRENT_TIMESTAMP - INTERVAL 6 HOUR;`,
+            [user_id, nearbyLocation.id],
+        );
+        
         if (notifs[0].notification_count > 0) {
             return res.status(200).json({
                 message: 'Notification cooldown active',
@@ -429,4 +437,5 @@ const [notifs] = await pool.query(
         }
     }
 });
-module.exports = router;
+
+export default router;
