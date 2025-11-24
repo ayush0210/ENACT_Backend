@@ -737,8 +737,45 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         }
 
         let result = null;
+
+        // OPTIMIZATION: Hybrid mode should try DB first (fast), then AI fallback
+        if (generateMode === 'hybrid' || generateMode === 'database') {
+            // Try database search first (much faster)
+            result = await personalizationService.getContextualPersonalizedTips(
+                userId,
+                effectivePrompt,
+                5,
+                enhancedContentPrefs,
+            );
+
+            if (result.tips && result.tips.length > 0) {
+                return res.status(200).json({
+                    tips: result.tips,
+                    isPersonalized: result.isPersonalized || hasSurveyData,
+                    isGenerated: false,
+                    hasSurveyPersonalization: hasSurveyData,
+                    originalQuery: prompt,
+                    source: 'database_search_with_survey',
+                    message: `Found ${result.tips.length} relevant parenting tips about "${prompt}"`,
+                });
+            }
+
+            // If database mode only, stop here
+            if (generateMode === 'database') {
+                return res.status(200).json({
+                    tips: [],
+                    isPersonalized: hasSurveyData,
+                    isGenerated: false,
+                    hasSurveyPersonalization: hasSurveyData,
+                    originalQuery: prompt,
+                    source: 'no_results',
+                    message: `No database tips found for "${prompt}"`,
+                });
+            }
+        }
+
+        // AI generation (for 'generate' mode or 'hybrid' fallback)
         if (generateMode === 'generate' || generateMode === 'hybrid') {
-            // Try AI generation with survey context
             const enhancedPrompt = surveyContext
                 ? `${effectivePrompt}\n\nUser Context: ${surveyContext}`
                 : effectivePrompt;
@@ -766,33 +803,11 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
                     isGenerated: result.isGenerated,
                     hasSurveyPersonalization: hasSurveyData,
                     originalQuery: prompt,
-                    source: 'ai_generated_with_survey',
+                    source: generateMode === 'hybrid' ? 'ai_fallback_with_survey' : 'ai_generated_with_survey',
                     message: hasSurveyData
                         ? `Generated ${result.tips.length} personalized parenting tips about "${prompt}" based on your survey preferences!`
                         : `Generated ${result.tips.length} parenting tips about "${prompt}"`,
                     surveyContext: surveyContext,
-                });
-            }
-        }
-
-        if (generateMode === 'database' || generateMode === 'hybrid') {
-            // Try database search with enhanced preferences
-            result = await personalizationService.getContextualPersonalizedTips(
-                userId,
-                effectivePrompt,
-                5,
-                enhancedContentPrefs,
-            );
-
-            if (result.tips && result.tips.length > 0) {
-                return res.status(200).json({
-                    tips: result.tips,
-                    isPersonalized: result.isPersonalized || hasSurveyData,
-                    isGenerated: false,
-                    hasSurveyPersonalization: hasSurveyData,
-                    originalQuery: prompt,
-                    source: 'database_search_with_survey',
-                    message: `Found ${result.tips.length} relevant parenting tips about "${prompt}"`,
                 });
             }
         }

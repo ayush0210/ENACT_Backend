@@ -532,16 +532,16 @@ class PersonalizationService {
                 })
                 .join('\n');
 
-            // Generate candidates via AI with *grounded* context
+            // OPTIMIZATION: Reduce AI generation count and simplify context
             const generatedTips = await this.generateTipsWithAI(
                 query,
                 [
                     preferenceContext,
-                    contextSnippets ? `Relevant tips:\n${contextSnippets}` : '',
+                    contextSnippets ? `Context:\n${contextSnippets}` : '',
                 ]
                     .filter(Boolean)
                     .join('\n\n'),
-                limit * 2,
+                Math.min(limit * 2, 6), // Cap at 6 tips max for faster generation
                 contentPreferences,
                 queryKeywords,
                 onToken,
@@ -801,17 +801,12 @@ class PersonalizationService {
                     `🤖 AI generation attempt ${attempt}/${maxRetries} for query: "${query}"`,
                 );
 
-                let userMsg = `Generate ${count} practical parenting tips strictly about "${query}".${keywordPin}
-                                RULES:
-                                - Domains allowed: ${domainLine}
-                                - DO NOT give advice on discipline, sleep, eating, potty training, screen time, medical, logistics, or legal topics
-                                - Be specific, actionable, age-appropriate
-                                - Keep outputs concise
-
-                                Return ONLY a JSON array like:
-                                [
-                                    {"id":1,"title":"≤50 chars","body":"2 short sentences.","details":"1 short sentence.","categories":["one_of_the_4_domains"]}
-                                ]`;
+                // OPTIMIZATION: Drastically simplified prompt for faster generation
+                let userMsg = `Generate ${count} tips about "${query}".${keywordPin}
+Domains: ${domainLine}
+NO: discipline, sleep, eating, potty, screen time, medical, legal.
+Return JSON array:
+[{"id":1,"title":"<50 chars","body":"2 sentences","details":"1 sentence","categories":["domain"]}]`;
 
                 if (
                     Array.isArray(contentPreferences) &&
@@ -834,25 +829,23 @@ class PersonalizationService {
                     // This may include RAG context if you feed it upstream
                     userMsg += `\n\nUser Context:\n${preferenceContext}`;
                 }
-                console.time(
-                    '<----------OpenAI API Response time: ---------->',
-                );
+                const timerLabel = `OpenAI-${Date.now()}-${attempt}`;
+                console.time(timerLabel);
                 // OPTIMIZATION: Reduce timeout from 25s to 8s for faster failures
+                // OPTIMIZATION: Simplified system prompt and reduced temperature for faster, more deterministic responses
                 const response = await Promise.race([
                     openai.chat.completions.create({
                         model: process.env.OPENAI_TIPS_MODEL || 'gpt-4o-mini',
                         messages: [
                             {
                                 role: 'system',
-                                content:
-                                    'You are a concise parenting education specialist. Only output valid JSON (array). Stay within the 4 domains. No prohibited topics.',
+                                content: 'Output valid JSON array only. Parenting tips within 4 domains.',
                             },
                             { role: 'user', content: userMsg },
                         ],
-                        temperature: 0.3,
-                        top_p: 0.95,
-                        // OPTIMIZATION: Reduce from 1200 to 800 for faster responses
-                        max_tokens: 800,
+                        temperature: 0.2, // Lower temperature = faster generation
+                        // OPTIMIZATION: Reduce from 1200 to 600 for faster responses
+                        max_tokens: 600,
                     }),
                     new Promise((_, reject) =>
                         setTimeout(
@@ -861,9 +854,7 @@ class PersonalizationService {
                         ),
                     ),
                 ]);
-                console.timeEnd(
-                    '<----------OpenAI API Response time: ---------->',
-                );
+                console.timeEnd(timerLabel);
 
                 const raw = (
                     response.choices?.[0]?.message?.content || ''
