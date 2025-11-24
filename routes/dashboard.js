@@ -52,8 +52,8 @@ router.get('/users/timeline', authenticateJWT, async (req, res) => {
 router.get('/children/ages', authenticateJWT, async (req, res) => {
     try {
         const [results] = await pool.query(`
-            SELECT 
-                TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) as age,
+            SELECT
+                age,
                 COUNT(*) as count
             FROM children
             GROUP BY age

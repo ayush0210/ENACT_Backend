@@ -10,7 +10,7 @@ router.get('/children', authenticateJWT, async (req, res) => {
         const user_id = req.user.id;
 
         const [rows] = await pool.query(
-            `SELECT id, nickname, date_of_birth
+            `SELECT id, nickname, age
        FROM children
        WHERE user_id = ?`,
             [user_id],
@@ -33,17 +33,26 @@ router.get('/children', authenticateJWT, async (req, res) => {
 router.post('/children', authenticateJWT, async (req, res) => {
     const connection = await pool.getConnection();
     try {
-        const { nickname, date_of_birth } = req.body;
+        const { nickname, age } = req.body;
         const user_id = req.user.id;
+
+        // Validate age
+        if (!age || age < 1 || age > 5 || !Number.isInteger(age)) {
+            connection.release();
+            return res.status(400).json({
+                success: false,
+                message: 'Child age must be an integer between 1 and 5',
+            });
+        }
 
         // Start transaction
         await connection.beginTransaction();
 
         // Insert new child
         const [result] = await connection.query(
-            `INSERT INTO children (user_id, nickname, date_of_birth)
+            `INSERT INTO children (user_id, nickname, age)
        VALUES (?, ?, ?)`,
-            [user_id, nickname, date_of_birth],
+            [user_id, nickname, age],
         );
 
         // Update user's number_of_children
@@ -100,13 +109,22 @@ router.post('/updateChildren', authenticateJWT, async (req, res) => {
                 });
             }
 
+            // Validate age if provided
+            if (child.age && (child.age < 1 || child.age > 5 || !Number.isInteger(child.age))) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: 'Child age must be an integer between 1 and 5',
+                });
+            }
+
             // Update child information
             await connection.query(
-                `UPDATE children 
-         SET nickname = ?, 
-             date_of_birth = ? 
+                `UPDATE children
+         SET nickname = ?,
+             age = ?
          WHERE id = ? AND user_id = ?`,
-                [child.nickname, child.date_of_birth, child.id, user_id],
+                [child.nickname, child.age, child.id, user_id],
             );
         }
 
