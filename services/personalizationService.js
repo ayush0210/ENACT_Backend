@@ -6,11 +6,6 @@ import {
 } from '../utils/parentingGuardrails.js';
 import crypto from 'crypto';
 import { getCached, setCached, purge } from '../utils/emb-cache.js';
-import {
-    ensureTipsCollection,
-    qdrant,
-    TIPS_COLLECTION,
-} from '../utils/qdrant.js';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -121,30 +116,6 @@ class PersonalizationService {
                     [tipId, JSON.stringify(embedding)],
                 );
             }
-
-            const [[tip]] = await pool.query(
-                'SELECT id, title, description, type FROM tips WHERE id = ?',
-                [tipId],
-            );
-
-            if (tip) {
-                await ensureTipsCollection(embedding.length);
-                await qdrant.upsert(TIPS_COLLECTION, {
-                    wait: false,
-                    points: [
-                        {
-                            id: tipId.toString(),
-                            vector: embedding,
-                            payload: {
-                                tip_id: tipId.toString(),
-                                type: tip.type,
-                                title: tip.title || '',
-                                description: tip.description || '',
-                            },
-                        },
-                    ],
-                });
-            }
         } catch (error) {
             console.error('Error storing embedding:', error);
             throw error;
@@ -168,8 +139,6 @@ class PersonalizationService {
             const emb = response.data[0].embedding;
             setCached(key, emb);
             return emb;
-
-            // return response.data[0].embedding;
         } catch (error) {
             console.error('Error generating query embedding:', error);
             throw error;
@@ -261,13 +230,17 @@ class PersonalizationService {
         }
 
         // Create/store embedding
-        const embedding = await this.generateTipEmbedding({
-            title,
-            body,
-            details,
-            description: body,
-        });
-        await this.storeTipEmbedding(newTipId, embedding);
+        try {
+            const embedding = await this.generateTipEmbedding({
+                title,
+                body,
+                details,
+                description: body,
+            });
+            await this.storeTipEmbedding(newTipId, embedding);
+        } catch (embErr) {
+            console.warn('Failed to create embedding (non-critical):', embErr.message);
+        }
 
         return newTipId;
     }
@@ -284,92 +257,69 @@ class PersonalizationService {
                 `🔍 Getting contextual personalized tips for user ${userId} with query: "${query}"`,
             );
 
-            let sql = `
-                SELECT te.tip_id, te.embedding, t.title, t.description, t.type
-                FROM tip_embeddings te
-                JOIN tips t ON te.tip_id = t.id
-                WHERE te.tip_id NOT IN (
-                SELECT DISTINCT tip_id
-                FROM user_tip_interactions
-                WHERE user_id = ? AND interaction_type IN ('like', 'dislike')
-                )
-            `;
-            const params = [userId];
-
-            const [
-                queryEmbedding,
-                [userProfile],
-                [dislikes],
-                [tipEmbeddings],
-                [interacted],
-            ] = await Promise.all([
-                this.generateQueryEmbedding(query),
-                pool.query(
-                    'SELECT preference_embedding FROM user_preference_profiles WHERE user_id = ?',
-                    [userId],
-                ),
-                pool.query(
-                    `SELECT te.embedding FROM user_tip_interactions uti
+            // Run independent work in parallel
+            const [queryEmbedding, [userProfile], [dislikes], [interacted]] =
+                await Promise.all([
+                    this.generateQueryEmbedding(query),
+                    pool.query(
+                        'SELECT preference_embedding FROM user_preference_profiles WHERE user_id = ?',
+                        [userId],
+                    ),
+                    pool.query(
+                        `SELECT te.embedding FROM user_tip_interactions uti
                         JOIN tip_embeddings te ON uti.tip_id = te.tip_id
-                        WHERE uti.user_id = ? AND uti.interaction_type = 'dislike'
-                        `,
-                    [userId],
-                ),
-                pool.query(sql, params),
-                pool.query(
-                    `SELECT DISTINCT tip_id FROM user_tip_interactions WHERE user_id = ? AND interaction_type IN ('like','dislike')`,
-                    [userId],
-                ),
-            ]);
+                        WHERE uti.user_id = ? AND uti.interaction_type = 'dislike'`,
+                        [userId],
+                    ),
+                    pool.query(
+                        `SELECT DISTINCT tip_id FROM user_tip_interactions WHERE user_id = ? AND interaction_type IN ('like','dislike')`,
+                        [userId],
+                    ),
+                ]);
 
+            // Unpack personalization
+            let userPreference = null;
+            let hasPersonalization = false;
+            if (userProfile.length > 0 && userProfile[0].preference_embedding) {
+                userPreference = Array.isArray(
+                    userProfile[0].preference_embedding,
+                )
+                    ? userProfile[0].preference_embedding
+                    : JSON.parse(userProfile[0].preference_embedding);
+                hasPersonalization = true;
+            }
+
+            // Build dislike centroid
             let dislikeCentroid = null;
-
             if (dislikes.length) {
                 const vecs = dislikes.map(r =>
                     Array.isArray(r.embedding)
                         ? r.embedding
                         : JSON.parse(r.embedding),
                 );
-
                 const L = vecs[0].length;
                 dislikeCentroid = new Array(L).fill(0);
-
                 for (const v of vecs)
                     for (let i = 0; i < L; i++) dislikeCentroid[i] += v[i];
-
                 for (let i = 0; i < L; i++) dislikeCentroid[i] /= vecs.length;
             }
 
-            const excludeIds = (interacted || [])
-                .map(r => r.tip_id?.toString())
-                .filter(Boolean);
+            // Get tip embeddings from MySQL (excluding already interacted)
+            const excludeIds = (interacted || []).map(r => r.tip_id).filter(Boolean);
+            const excludePlaceholders = excludeIds.length 
+                ? `AND t.id NOT IN (${excludeIds.map(() => '?').join(',')})` 
+                : '';
 
-            const mustNot = excludeIds.length
-                ? [{ key: 'tip_id', match: { any: excludeIds } }]
-                : [];
+            const [tipEmbeddings] = await pool.query(
+                `SELECT te.tip_id, te.embedding, t.title, t.description, t.type
+                 FROM tip_embeddings te
+                 JOIN tips t ON te.tip_id = t.id
+                 WHERE 1=1 ${excludePlaceholders}
+                 LIMIT ?`,
+                [...excludeIds, Math.max(limit * 5, 50)]
+            );
 
-            const must = [];
-
-            if (allowed.length > 0) {
-                must.push({ key: 'type', match: { any: allowed } });
-            }
-
-            // 5) Vector search in Qdrant (fast)
-            await ensureTipsCollection(queryEmbedding.length);
-            const topK = Math.max(limit * 5, 20);
-            const qres = await qdrant.search(TIPS_COLLECTION, {
-                vector: queryEmbedding,
-                limit: topK,
-                with_payload: true,
-                with_vector: false,
-                score_threshold: ON_TOPIC.MIN_QUERY_SIM, // keep your gating
-                filter:
-                    must.length || mustNot.length
-                        ? { must, must_not: mustNot }
-                        : undefined,
-            });
-
-            if (!qres.length) {
+            if (tipEmbeddings.length === 0) {
                 return {
                     tips: [],
                     isPersonalized: hasPersonalization,
@@ -378,82 +328,74 @@ class PersonalizationService {
                 };
             }
 
-            // 6) Post-blend Qdrant score (cosine) with personalization and dislike penalty
-            const recommendations = qres.map(p => {
-                // Qdrant returns "score" as similarity (cosine if configured)
-                const querySimilarity =
-                    Math.round((p.score || 0) * 1000) / 1000;
-                const payload = p.payload || {};
-                const embeddingMatch = 0.5; // default; we’ll recompute if personal profile exists
+            // Calculate cosine similarity for each tip
+            console.time('<----------MySQL Vector Search------------------->');
+            const recommendations = [];
+            
+            for (const row of tipEmbeddings) {
+                try {
+                    const tipEmb = Array.isArray(row.embedding) 
+                        ? row.embedding 
+                        : JSON.parse(row.embedding);
+                    
+                    // Calculate query similarity (HARD FILTER)
+                    const qSim = this.cosineSimilarity(queryEmbedding, tipEmb);
+                    if (qSim < ON_TOPIC.MIN_QUERY_SIM) continue;
+
+                    // Calculate personalization score
+                    let personal = 0.5;
+                    if (hasPersonalization && userPreference) {
+                        personal = this.cosineSimilarity(userPreference, tipEmb);
+                    }
+
+                    // Calculate final score with dislike penalty
+                    let finalScore =
+                        ON_TOPIC.LAMBDA_QUERY * qSim +
+                        ON_TOPIC.LAMBDA_PERSONAL * personal;
+                    
+                    if (dislikeCentroid) {
+                        const dislikeSim = this.cosineSimilarity(dislikeCentroid, tipEmb);
+                        finalScore -= ON_TOPIC.LAMBDA_DISLIKE * Math.max(0, dislikeSim);
+                    }
+
+                    recommendations.push({
+                        id: row.tip_id,
+                        title: row.title,
+                        body: row.description,
+                        details: hasPersonalization
+                            ? `Personalized ${row.type} tip for "${query}"`
+                            : `${row.type} tip for "${query}"`,
+                        categories: [row.type].filter(Boolean),
+                        query_relevance: Math.round(qSim * 1000) / 1000,
+                        personal_match: Math.round(personal * 1000) / 1000,
+                        similarity_score: Math.round(finalScore * 1000) / 1000,
+                        __is_strong_match: qSim >= ON_TOPIC.STRONG_QUERY_SIM,
+                    });
+                } catch (err) {
+                    console.error(`Error processing tip ${row.tip_id}:`, err.message);
+                }
+            }
+            console.timeEnd('<----------MySQL Vector Search------------------->');
+
+            if (recommendations.length === 0) {
                 return {
-                    id: payload.tip_id || p.id,
-                    title: payload.title,
-                    body: payload.description,
-                    details: hasPersonalization
-                        ? `Personalized ${payload.type} tip for "${query}"`
-                        : `${payload.type} tip for "${query}"`,
-                    categories: [payload.type].filter(Boolean),
-                    query_relevance: querySimilarity,
-                    _raw: payload,
+                    tips: [],
+                    isPersonalized: hasPersonalization,
+                    queryRelevance: true,
+                    originalQuery: query,
                 };
+            }
+
+            // Sort: strong on-topic first, then query relevance, then blended score
+            recommendations.sort((a, b) => {
+                if (a.__is_strong_match && !b.__is_strong_match) return -1;
+                if (!a.__is_strong_match && b.__is_strong_match) return 1;
+                if (b.query_relevance !== a.query_relevance)
+                    return b.query_relevance - a.query_relevance;
+                return b.similarity_score - a.similarity_score;
             });
 
-            // If personalization/dislike are active, fetch embeddings once from MySQL for those ids and blend.
-            let final = recommendations;
-            if (hasPersonalization || dislikeCentroid) {
-                const ids = recommendations.map(r => r.id);
-                const placeholders = ids.map(() => '?').join(',');
-                const [embRows] = await pool.query(
-                    `SELECT tip_id, embedding FROM tip_embeddings WHERE tip_id IN (${placeholders})`,
-                    ids,
-                );
-                const embMap = new Map(
-                    embRows.map(r => [
-                        String(r.tip_id),
-                        Array.isArray(r.embedding)
-                            ? r.embedding
-                            : JSON.parse(r.embedding),
-                    ]),
-                );
-                final = recommendations.map(r => {
-                    const emb = embMap.get(String(r.id));
-                    let personal = 0.5,
-                        penalty = 0;
-                    if (emb && hasPersonalization && userPreference) {
-                        personal = this.cosineSimilarity(userPreference, emb);
-                    }
-                    if (emb && dislikeCentroid) {
-                        const d = this.cosineSimilarity(dislikeCentroid, emb);
-                        penalty = ON_TOPIC.LAMBDA_DISLIKE * Math.max(0, d);
-                    }
-                    const sim =
-                        ON_TOPIC.LAMBDA_QUERY * r.query_relevance +
-                        ON_TOPIC.LAMBDA_PERSONAL * personal -
-                        penalty;
-                    return {
-                        ...r,
-                        personal_match: Math.round(personal * 1000) / 1000,
-                        similarity_score: Math.round(sim * 1000) / 1000,
-                        __is_strong_match:
-                            r.query_relevance >= ON_TOPIC.STRONG_QUERY_SIM,
-                    };
-                });
-            }
-            +(
-                // 7) Sort exactly like before
-                final.sort((a, b) => {
-                    if (a.__is_strong_match && !b.__is_strong_match) return -1;
-                    if (!a.__is_strong_match && b.__is_strong_match) return 1;
-                    if (b.query_relevance !== a.query_relevance)
-                        return b.query_relevance - a.query_relevance;
-                    return (
-                        (b.similarity_score ?? b.query_relevance) -
-                        (a.similarity_score ?? a.query_relevance)
-                    );
-                })
-            );
-
-            const finalTips = final.slice(0, limit);
+            const finalTips = recommendations.slice(0, limit);
             return {
                 tips: finalTips,
                 isPersonalized: hasPersonalization,
@@ -528,29 +470,42 @@ class PersonalizationService {
             }
 
             // Kick off the (slower) natural-language preference analysis in parallel
-            // while we proceed with generation; await it only when needed.
             const preferenceContextPromise = hasPersonalization
                 ? this.analyzeUserPreferences(userId)
                 : Promise.resolve('');
 
             const preferenceContext = await preferenceContextPromise;
 
-            // RAG: retrieve top context from Qdrant
-            await ensureTipsCollection(1536); // or queryEmbedding.length after you compute it
-            // const queryEmbedding = await this.generateQueryEmbedding(query); // do this in the earlier Promise.all if you parallelize
-            console.time(
-                '<----------QDRANT SEARCH FOR TIPS------------------->',
+            // RAG: retrieve top context from MySQL instead of Qdrant
+            console.time('<----------MySQL Search for RAG Context------------------->');
+            const [contextTips] = await pool.query(
+                `SELECT te.tip_id, te.embedding, t.title, t.description, t.type
+                 FROM tip_embeddings te
+                 JOIN tips t ON te.tip_id = t.id
+                 LIMIT 20`
             );
-            const ragCtx = await qdrant.search(TIPS_COLLECTION, {
-                vector: queryEmbedding,
-                limit: 6,
-                with_payload: true,
-                with_vector: false,
-                score_threshold: ON_TOPIC.MIN_QUERY_SIM,
-            });
-            console.timeEnd(
-                '<----------QDRANT SEARCH FOR TIPS------------------->',
-            );
+
+            // Calculate similarity and get top 6
+            const ragCtx = contextTips
+                .map(row => {
+                    const tipEmb = Array.isArray(row.embedding) 
+                        ? row.embedding 
+                        : JSON.parse(row.embedding);
+                    const score = this.cosineSimilarity(queryEmbedding, tipEmb);
+                    return {
+                        score,
+                        payload: {
+                            type: row.type,
+                            title: row.title,
+                            description: row.description
+                        }
+                    };
+                })
+                .filter(r => r.score >= ON_TOPIC.MIN_QUERY_SIM)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 6);
+
+            console.timeEnd('<----------MySQL Search for RAG Context------------------->');
 
             const contextSnippets = ragCtx
                 .map((p, i) => {
@@ -598,10 +553,6 @@ class PersonalizationService {
                 try {
                     const tip = generatedTips[i];
                     const tipEmbedding = tipVectors[i];
-
-                    // for (const tip of generatedTips) {
-                    //     try {
-                    //         const tipEmbedding = await this.generateTipEmbedding(tip);
 
                     // HARD FILTER by query similarity
                     const qSim = this.cosineSimilarity(
@@ -856,7 +807,7 @@ class PersonalizationService {
                 );
                 const response = await Promise.race([
                     openai.chat.completions.create({
-                        model: process.env.OPENAI_TIPS_MODEL || 'gpt-3.5-turbo',
+                        model: process.env.OPENAI_TIPS_MODEL || 'gpt-4o-mini',
                         messages: [
                             {
                                 role: 'system',
@@ -982,7 +933,7 @@ class PersonalizationService {
 
         console.error(`💥 All AI generation attempts failed for "${query}"`);
         console.error('Last error:', lastError?.message);
-        return null;
+        return [];
     }
 
     generateFallbackTips(query, count = 5) {
@@ -1065,8 +1016,13 @@ class PersonalizationService {
             }
 
             // Refresh preference profile
-            await this.updateUserPreferenceProfile(userId);
-            console.log('🎉 trackUserInteraction completed successfully');
+            try {
+                await this.updateUserPreferenceProfile(userId);
+                console.log('🎉 trackUserInteraction completed successfully');
+            } catch (profileErr) {
+                console.warn('⚠️  Preference profile update warning:', profileErr.message);
+                // Non-critical - interactions are still tracked in MySQL
+            }
         } catch (error) {
             console.error('❌ Error in trackUserInteraction:', error);
             throw error;
@@ -1711,7 +1667,7 @@ class PersonalizationService {
     }
 
     cleanOneLineJSON(text) {
-        // optional: ensure no trailing commas etc. We’ll rely on well-formed lines.
+        // optional: ensure no trailing commas etc. We'll rely on well-formed lines.
         return text.trim();
     }
 
