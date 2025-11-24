@@ -687,21 +687,32 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             contentPreferences = [],
             generateMode = 'hybrid',
         } = req.body;
-        if (!prompt) {
-            return res.status(400).json({ error: 'Prompt is required' });
+
+        // BUGFIX: Validate prompt input
+        if (!prompt || typeof prompt !== 'string') {
+            return res.status(400).json({ error: 'Prompt is required and must be a string' });
+        }
+
+        const sanitizedPrompt = prompt.trim();
+        if (sanitizedPrompt.length === 0) {
+            return res.status(400).json({ error: 'Prompt cannot be empty' });
+        }
+
+        if (sanitizedPrompt.length > 1000) {
+            return res.status(400).json({ error: 'Prompt is too long (max 1000 characters)' });
         }
 
         // Soft override handling
-        let effectivePrompt = prompt;
-        const v = isStrictlyInScope(prompt);
+        let effectivePrompt = sanitizedPrompt;
+        const v = isStrictlyInScope(sanitizedPrompt);
         if (!v.isValid) {
-            if (looksLikeParentingPrompt(prompt)) {
+            if (looksLikeParentingPrompt(sanitizedPrompt)) {
                 effectivePrompt = reframeAsParenting(
-                    prompt,
+                    sanitizedPrompt,
                     'This question is about my child. Strictly Provide age-appropriate, safe, practical parenting strategies.',
                 );
             } else {
-                const { status, payload } = categoryReply(v.type, prompt);
+                const { status, payload } = categoryReply(v.type, sanitizedPrompt);
                 return res.status(status).json(payload);
             }
         }

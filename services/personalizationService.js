@@ -152,12 +152,23 @@ class PersonalizationService {
         );
         try {
             purge();
-            const key = `qe:${query}`;
+
+            // BUGFIX: Validate and sanitize query input
+            const sanitizedQuery = String(query || '').trim();
+            if (!sanitizedQuery || sanitizedQuery.length === 0) {
+                throw new Error('Query cannot be empty for embedding generation');
+            }
+
+            // BUGFIX: Truncate very long queries to prevent API errors
+            const truncatedQuery = sanitizedQuery.slice(0, 8000);
+
+            const key = `qe:${truncatedQuery}`;
             const hit = getCached(key);
             if (hit && hit.exp > Date.now()) return hit.v;
+
             const response = await openai.embeddings.create({
                 model: 'text-embedding-3-small',
-                input: query,
+                input: truncatedQuery,
                 encoding_format: 'float',
             });
             const emb = response.data[0].embedding;
@@ -957,7 +968,10 @@ Return JSON array:
 
         console.error(`💥 All AI generation attempts failed for "${query}"`);
         console.error('Last error:', lastError?.message);
-        return [];
+
+        // BUGFIX: Return fallback tips instead of empty array
+        console.log('🔄 Returning fallback tips due to AI generation failure');
+        return this.generateFallbackTips(query, count);
     }
 
     generateFallbackTips(query, count = 5) {
