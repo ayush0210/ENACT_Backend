@@ -341,6 +341,7 @@ function matchesLooseAny(text, words) {
 
 // single source of truth for route responses
 export const CATEGORY_RESPONSES = {
+    harmful_content: { http: 400, msg: 'We cannot provide advice on this topic. Please ask about safe, age-appropriate parenting strategies.' },
     adult_content: { http: 400, msg: 'We only provide parenting tips.' },
     adult_relationships: { http: 400, msg: 'We only provide parenting tips.' },
     violence_illegal: { http: 400, msg: 'We only provide parenting tips.' },

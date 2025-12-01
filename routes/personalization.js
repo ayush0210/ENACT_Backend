@@ -706,6 +706,12 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         let effectivePrompt = sanitizedPrompt;
         const v = isStrictlyInScope(sanitizedPrompt);
         if (!v.isValid) {
+            // CRITICAL: Block harmful content even if it has child terms
+            if (v.reason === 'harmful_content') {
+                const { status, payload } = categoryReply(v.reason, sanitizedPrompt);
+                return res.status(status).json(payload);
+            }
+
             if (looksLikeParentingPrompt(sanitizedPrompt)) {
                 effectivePrompt = reframeAsParenting(
                     sanitizedPrompt,

@@ -42,17 +42,18 @@ export const ALLOWED_DOMAINS = {
     },
     'Social-Emotional Learning': {
       keywords: [
-        'emotion', 'feeling', 'empathy', 'social', 'friend', 'share', 'turn-taking',
+        'emotion', 'emotions', 'feeling', 'feelings', 'empathy', 'social', 'friend', 'share', 'turn-taking',
         'cooperation', 'kindness', 'self-regulation', 'calm', 'upset', 'angry',
         'sad', 'happy', 'scared', 'frustrated', 'conflict', 'resolution',
         'relationship', 'self-awareness', 'self-control', 'coping', 'mindfulness',
-        'patience', 'understanding', 'compassion', 'jealous', 'proud'
+        'patience', 'understanding', 'compassion', 'jealous', 'proud', 'activity', 'activities'
       ],
       patterns: [
-        /\b(emotion|feeling|empathy|social|friend)\b/i,
+        /\b(emotion|emotions|feeling|feelings|empathy|social|friend)\b/i,
         /\b(share|sharing|turn-taking|cooperation|kindness)\b/i,
         /\b(self-regulation|calm|upset|angry|sad|frustrated)\b/i,
-        /\b(conflict|relationship|coping|mindfulness)\b/i
+        /\b(conflict|relationship|coping|mindfulness)\b/i,
+        /\b(activity|activities)\b/i
       ]
     }
   };
