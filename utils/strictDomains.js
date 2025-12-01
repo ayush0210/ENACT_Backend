@@ -59,6 +59,10 @@ export const ALLOWED_DOMAINS = {
   
   // Topics explicitly OUT of scope (reject immediately)
   const OUT_OF_SCOPE_TOPICS = [
+    // Violence/harm (NEVER allowed - safety critical)
+    /\b(kill|murder|hurt|harm|attack|violent|weapon|gun|knife|death|die|suicide)\b/i,
+    /\b(abuse|neglect|poison|dangerous|unsafe|illegal)\b/i,
+
     // Behavioral/discipline (not in our domains)
     /\b(discipline|punishment|consequence|timeout|reward|chart|behavior modification)\b/i,
     /\b(tantrum|meltdown|defiance|backtalk|hitting|biting|kicking)\b/i,
@@ -94,10 +98,19 @@ export const ALLOWED_DOMAINS = {
   
   export function isStrictlyInScope(query) {
     const q = String(query || '').toLowerCase();
-    
+
     // 1. Check for explicitly out-of-scope topics
-    for (const pattern of OUT_OF_SCOPE_TOPICS) {
+    for (let i = 0; i < OUT_OF_SCOPE_TOPICS.length; i++) {
+      const pattern = OUT_OF_SCOPE_TOPICS[i];
       if (pattern.test(q)) {
+        // Different message for violence/harmful content (first 2 patterns)
+        if (i < 2) {
+          return {
+            isValid: false,
+            reason: 'harmful_content',
+            message: 'We cannot provide advice on this topic. Our focus is on positive, safe parenting strategies in Language Development, Early Science Skills, Literacy Foundations, and Social-Emotional Learning.'
+          };
+        }
         return {
           isValid: false,
           reason: 'out_of_scope',

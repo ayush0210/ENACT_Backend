@@ -850,7 +850,7 @@ Return JSON array:
                         messages: [
                             {
                                 role: 'system',
-                                content: 'Output valid JSON array only. Parenting tips within 4 domains.',
+                                content: 'Output valid JSON array only. Parenting tips within 4 domains. Never provide harmful, violent, or illegal advice.',
                             },
                             { role: 'user', content: userMsg },
                         ],
@@ -1788,7 +1788,7 @@ Return JSON array:
                 {
                     role: 'system',
                     content:
-                        'You output STRICT NDJSON: one complete JSON object per line. No arrays or prose.',
+                        'You output STRICT NDJSON: one complete JSON object per line. No arrays or prose. Never provide harmful, violent, or illegal advice.',
                 },
                 { role: 'user', content: userMsg },
             ],
