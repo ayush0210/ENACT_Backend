@@ -28,9 +28,6 @@ const register = async (req, res) => {
     let connection;
     try {
         // Input validation
-        if (!name) {
-            return res.status(400).json({ error: 'Name is required' });
-        }
         if (!email) {
             return res.status(400).json({ error: 'Email is required' });
         }
@@ -69,10 +66,13 @@ const register = async (req, res) => {
         const numberOfChildren = children?.numberOfChildren || 0;
         const childrenDetails = children?.childrenDetails || [];
 
+        // Use email username as default name if not provided
+        const userName = name || email.split('@')[0];
+
         // Insert user
         const [userResult] = await connection.query(
             'INSERT INTO users (name, email, password, number_of_children, caregiver_type) VALUES (?, ?, ?, ?, ?)',
-            [name, email, hashedPassword, numberOfChildren, caregiverType || null],
+            [userName, email, hashedPassword, numberOfChildren, caregiverType || null],
         );
 
         const userId = userResult.insertId;
@@ -142,7 +142,7 @@ const register = async (req, res) => {
             refresh_token: refreshToken,
             user: {
                 id: userId,
-                name,
+                name: userName,
                 email,
                 number_of_children: numberOfChildren,
             },
