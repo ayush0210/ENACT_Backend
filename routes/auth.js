@@ -11,6 +11,19 @@ const router = express.Router();
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+// Configure nodemailer as fallback (Gmail SMTP)
+const gmailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.SENDGRID_FROM, // Use same email
+        pass: process.env.GMAIL_APP_PASSWORD, // Add this to .env
+    },
+});
+
+// Rate limiting for password resets (prevent quota exhaustion)
+const resetRateLimiter = new Map();
+const RESET_COOLDOWN = 60000; // 1 minute between reset requests per email
+
 // Input validation helper
 const validateEmail = email => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -354,6 +367,16 @@ const requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
     try {
+        // Rate limiting check
+        const lastRequest = resetRateLimiter.get(email);
+        if (lastRequest && Date.now() - lastRequest < RESET_COOLDOWN) {
+            const waitTime = Math.ceil((RESET_COOLDOWN - (Date.now() - lastRequest)) / 1000);
+            return res.status(429).json({
+                message: `Please wait ${waitTime} seconds before requesting another reset`,
+                cooldown: true
+            });
+        }
+
         // Check if user exists
         const [users] = await pool.query(
             'SELECT id FROM users WHERE email = ?',
@@ -405,31 +428,68 @@ const requestPasswordReset = async (req, res) => {
       </div>
     `;
 
-        console.log(process.env.SENDGRID_FROM);
+        let emailSent = false;
+        let provider = 'unknown';
 
-        await sgMail.send({
-            to: email,
-            from: process.env.SENDGRID_FROM, // must be verified in SendGrid
-            subject: 'Password Reset Request',
-            html,
-        });
+        // Try SendGrid first
+        try {
+            console.log('📧 Attempting to send via SendGrid...');
+            await sgMail.send({
+                to: email,
+                from: process.env.SENDGRID_FROM,
+                subject: 'Password Reset Request',
+                html,
+            });
+            emailSent = true;
+            provider = 'SendGrid';
+            console.log('✅ Email sent via SendGrid');
+        } catch (sgError) {
+            const sgErr = sgError?.response?.body?.errors?.map(e => e.message).join('; ');
+            console.warn('⚠️  SendGrid failed:', sgErr || sgError.message);
 
-        return res.status(200).json({
-            message: 'Password reset instructions sent to email',
-            success: true,
-        });
+            // Fallback to nodemailer with Gmail
+            try {
+                console.log('📧 Attempting fallback via Gmail SMTP...');
+                await gmailTransporter.sendMail({
+                    from: process.env.SENDGRID_FROM,
+                    to: email,
+                    subject: 'Password Reset Request',
+                    html,
+                });
+                emailSent = true;
+                provider = 'Gmail SMTP';
+                console.log('✅ Email sent via Gmail SMTP (fallback)');
+            } catch (gmailError) {
+                console.error('❌ Gmail SMTP also failed:', gmailError.message);
+                throw new Error('All email providers failed');
+            }
+        }
+
+        if (emailSent) {
+            // Update rate limiter
+            resetRateLimiter.set(email, Date.now());
+
+            // Clean up old rate limit entries (older than 2 minutes)
+            for (const [key, timestamp] of resetRateLimiter.entries()) {
+                if (Date.now() - timestamp > 120000) {
+                    resetRateLimiter.delete(key);
+                }
+            }
+
+            return res.status(200).json({
+                message: 'Password reset instructions sent to email',
+                success: true,
+                provider, // Include which provider worked
+            });
+        }
+
+        throw new Error('Failed to send email');
+
     } catch (error) {
-        // Helpful SendGrid error info
-        const sgErr = error?.response?.body?.errors
-            ?.map(e => e.message)
-            .join('; ');
-        console.error('Password reset request error:', sgErr || error);
+        console.error('Password reset request error:', error.message);
         return res.status(500).json({
-            message: 'Error processing password reset request',
-            error:
-                process.env.NODE_ENV === 'development'
-                    ? sgErr || error.message
-                    : undefined,
+            message: 'Error sending password reset email. Please try again later.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined,
         });
     }
 };
