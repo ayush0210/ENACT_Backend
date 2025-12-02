@@ -756,8 +756,12 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         let result = null;
 
         // Detect if user is asking a question (needs AI) vs searching for topic (can use DB)
-        const isQuestion = /\b(what|how|why|when|where|should|can|could|would|do|does|is|are)\b.*\?/i.test(sanitizedPrompt) ||
-                          /\b(what|how|why|should|can|could|would)\b.*\b(do|does|gonna|going to|should|activities|activity|ideas)\b/i.test(sanitizedPrompt);
+        const isQuestion =
+            /\b(what|how|why|when|where|should|can|could|would|do|does|is|are)\b.*\?/i.test(sanitizedPrompt) ||
+            /\b(what|how|why|should|can|could|would)\b.*\b(do|does|gonna|going to|should|activities|activity|ideas)\b/i.test(sanitizedPrompt) ||
+            /\b(what|how)\s+(should|can|could|do|to do)\b/i.test(sanitizedPrompt) ||  // "what should I do", "how to do"
+            /\b(give me|tell me|show me|help me|suggest|recommend)\b/i.test(sanitizedPrompt) ||  // Request patterns
+            /\btoday\b.*\b(what|how|should|do)\b/i.test(sanitizedPrompt);  // "today what should I do"
 
         if (isQuestion) {
             console.log(`🤔 Detected question - skipping DB, using AI generation: "${sanitizedPrompt}"`);
