@@ -387,13 +387,19 @@ class PersonalizationService {
                         finalScore -= ON_TOPIC.LAMBDA_DISLIKE * Math.max(0, dislikeSim);
                     }
 
+                    // Clean query for display (remove context prompts)
+                    const cleanQuery = query
+                        .replace(/\n\nContext:.*$/s, '')  // Remove context instructions
+                        .trim()
+                        .slice(0, 100);  // Limit length
+
                     recommendations.push({
                         id: row.tip_id,
                         title: row.title,
                         body: row.description,
                         details: hasPersonalization
-                            ? `Personalized ${row.type} tip for "${query}"`
-                            : `${row.type} tip for "${query}"`,
+                            ? `Personalized ${row.type} tip for "${cleanQuery}"`
+                            : `${row.type} tip for "${cleanQuery}"`,
                         categories: [row.type].filter(Boolean),
                         query_relevance: Math.round(qSim * 1000) / 1000,
                         personal_match: Math.round(personal * 1000) / 1000,
@@ -976,20 +982,27 @@ Return JSON array:
 
     generateFallbackTips(query, count = 5) {
         const now = Date.now();
+
+        // Clean query for display (remove context prompts)
+        const cleanQuery = query
+            .replace(/\n\nContext:.*$/s, '')  // Remove context instructions
+            .trim()
+            .slice(0, 100);  // Limit length
+
         const fallbackTips = [
             {
                 id: `fallback_${now}_1`,
-                title: `Getting Started with ${query}`,
-                body: `Here are gentle, practical approaches to help with ${query}. Start small, observe your child, and iterate.`,
-                details: `Every child is different—adjust strategies to your family's routine while focusing on ${query}.`,
+                title: `Getting Started with ${cleanQuery}`,
+                body: `Here are gentle, practical approaches to help with ${cleanQuery}. Start small, observe your child, and iterate.`,
+                details: `Every child is different—adjust strategies to your family's routine while focusing on ${cleanQuery}.`,
                 audioUrl: null,
                 categories: ['general'],
             },
             {
                 id: `fallback_${now}_2`,
-                title: `Making ${query} Easier`,
-                body: `Break ${query} into small steps. Use clear cues and consistent routines to reduce friction.`,
-                details: `Celebrate small wins to build momentum with ${query}.`,
+                title: `Making ${cleanQuery} Easier`,
+                body: `Break ${cleanQuery} into small steps. Use clear cues and consistent routines to reduce friction.`,
+                details: `Celebrate small wins to build momentum with ${cleanQuery}.`,
                 audioUrl: null,
                 categories: ['general'],
             },
