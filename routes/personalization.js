@@ -755,8 +755,17 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
 
         let result = null;
 
+        // Detect if user is asking a question (needs AI) vs searching for topic (can use DB)
+        const isQuestion = /\b(what|how|why|when|where|should|can|could|would|do|does|is|are)\b.*\?/i.test(sanitizedPrompt) ||
+                          /\b(what|how|why|should|can|could|would)\b.*\b(do|does|gonna|going to|should|activities|activity|ideas)\b/i.test(sanitizedPrompt);
+
+        if (isQuestion) {
+            console.log(`🤔 Detected question - skipping DB, using AI generation: "${sanitizedPrompt}"`);
+        }
+
         // OPTIMIZATION: Hybrid mode should try DB first (fast), then AI fallback
-        if (generateMode === 'hybrid' || generateMode === 'database') {
+        // BUT: Skip DB for questions - they need AI generation to answer directly
+        if ((generateMode === 'hybrid' || generateMode === 'database') && !isQuestion) {
             // Try database search first (much faster)
             result = await personalizationService.getContextualPersonalizedTips(
                 userId,
