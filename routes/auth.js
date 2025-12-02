@@ -399,30 +399,29 @@ const requestPasswordReset = async (req, res) => {
             [hashedResetToken, expiryDate, email],
         );
 
-        // Deep links + fallback
-        const androidDeepLink = `intent://reset-password/${resetToken}#Intent;scheme=talkaroundtown;package=com.talk_around_town_trail;end`;
-        const iosDeepLink = `talkaroundtown://reset-password/${resetToken}`;
-        const webFallbackLink = `http://68.183.102.75:1337/reset-password/${resetToken}`;
-
         const html = `
       <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #4A90E2; text-align: center;">Password Reset Request</h1>
         <p style="color: #666; font-size: 16px;">You requested a password reset for your Talk Around Town account.</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${androidDeepLink}"
-             style="background-color: #4A90E2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-size: 16px; margin-bottom: 15px;">
-            Reset Password (Android)
-          </a>
-          <br/>
-          <a href="${iosDeepLink}"
-             style="background-color: #4A90E2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-size: 16px;">
-            Reset Password (iOS)
-          </a>
-          <p style="margin-top: 20px; color: #666;">Or copy and paste this code in the app:</p>
-          <p style="color: #4A90E2; font-size: 18px; font-family: monospace; background: #f5f5f5; padding: 10px; border-radius: 5px;">${resetToken}</p>
-          <p style="margin-top: 16px; color:#666;">If the buttons do not work, open this link: <a href="${webFallbackLink}">${webFallbackLink}</a></p>
+
+        <div style="text-align: center; margin: 40px 0;">
+          <p style="color: #333; font-size: 16px; margin-bottom: 10px;">Copy and paste this code in the app:</p>
+          <div style="background: #f5f5f5; border: 2px solid #4A90E2; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <p style="color: #4A90E2; font-size: 24px; font-weight: bold; font-family: monospace; margin: 0; letter-spacing: 2px;">${resetToken}</p>
+          </div>
         </div>
-        <p style="color: #666; font-size: 14px;">This code will expire in 1 hour.</p>
+
+        <div style="background: #f9f9f9; border-left: 4px solid #4A90E2; padding: 15px; margin: 20px 0;">
+          <p style="color: #666; font-size: 14px; margin: 0;"><strong>How to reset your password:</strong></p>
+          <ol style="color: #666; font-size: 14px; margin: 10px 0 0 0; padding-left: 20px;">
+            <li>Open the Talk Around Town app</li>
+            <li>Go to the password reset screen</li>
+            <li>Paste the code above</li>
+            <li>Enter your new password</li>
+          </ol>
+        </div>
+
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">⏱️ This code will expire in <strong>1 hour</strong>.</p>
         <p style="color: #999; font-size: 14px;">If you didn't request this, please ignore this email.</p>
         <p style="color: #999; font-size: 12px;">For security, this code will only work once.</p>
       </div>
