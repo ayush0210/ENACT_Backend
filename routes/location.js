@@ -7,6 +7,7 @@ import { GoogleAuth } from 'google-auth-library';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import personalizationService from '../services/personalizationService.js';
 
 // ESM equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -381,15 +382,51 @@ router.post('/', authenticateJWT, async (req, res) => {
             });
         }
 
-        // Get tips
-        const [tips] = await pool.query(
-            'SELECT title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
-            [nearbyLocation.type],
+        // Fetch user context for personalized tips
+        const [children] = await pool.query(
+            'SELECT nickname, age FROM children WHERE user_id = ?',
+            [user_id],
         );
 
-        const tipsText = tips
-            .map(tip => `${tip.title}\n${tip.description}`)
-            .join('\n\n');
+        const [userPrefs] = await pool.query(
+            'SELECT content_preferences FROM user_survey_responses WHERE user_id = ?',
+            [user_id],
+        );
+
+        let tips;
+        let tipsText;
+
+        try {
+            // Try AI-generated location-based tips
+            console.log('🤖 Attempting AI-generated location tips...');
+            const aiTips = await personalizationService.generateLocationBasedTips({
+                userId: user_id,
+                locationName: nearbyLocation.name,
+                locationType: nearbyLocation.type,
+                children: children,
+                preferences: userPrefs[0]?.content_preferences ? JSON.parse(userPrefs[0].content_preferences) : [],
+            });
+
+            tipsText = aiTips
+                .map(tip => `${tip.title}\n${tip.body}`)
+                .join('\n\n');
+
+            console.log('✅ Using AI-generated tips');
+        } catch (aiError) {
+            // Fallback to generic database tips
+            console.warn('⚠️  AI generation failed, using generic tips:', aiError.message);
+            const [dbTips] = await pool.query(
+                'SELECT title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
+                [nearbyLocation.type],
+            );
+
+            tips = dbTips;
+            tipsText = dbTips
+                .map(tip => `${tip.title}\n${tip.description}`)
+                .join('\n\n');
+
+            console.log('✅ Using generic database tips');
+        }
 
         // Send notification with unique identifier
         const notificationId = `${user_id}-${nearbyLocation.id}-${Date.now()}`;

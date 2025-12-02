@@ -1953,6 +1953,93 @@ Return JSON array:
             return null;
         }
     }
+
+    // ---------- Location-Based AI Tips ----------
+    async generateLocationBasedTips({ userId, locationName, locationType, children, preferences = [] }) {
+        try {
+            console.log(`🗺️  Generating location-based tips for user ${userId} at ${locationName} (${locationType})`);
+
+            // Build child context
+            const childContext = children && children.length > 0
+                ? children.map(c => `${c.nickname} (age ${c.age})`).join(', ')
+                : 'their child';
+
+            const childAges = children && children.length > 0
+                ? children.map(c => c.age).join(', ')
+                : '3';
+
+            // Build preference context
+            const preferenceContext = preferences.length > 0
+                ? preferences.join(', ')
+                : 'Language Development, Early Science Skills, Literacy Foundations, Social-Emotional Learning';
+
+            // Build location-specific prompt
+            const userMsg = `Generate 3 specific, actionable parenting tips for a parent visiting ${locationName} (a ${locationType}) with their ${children?.length === 1 ? 'child' : 'children'}: ${childContext}.
+
+User prefers activities in: ${preferenceContext}
+
+STRICT RULES:
+- ONLY provide tips within these 4 domains: Language Development, Early Science Skills, Literacy Foundations, Social-Emotional Learning
+- Each tip must be age-appropriate for ${childAges} year old(s)
+- Each tip must be specific to visiting a ${locationType}
+- Include concrete, actionable activities parents can do at this location
+- Keep tips practical and easy to implement
+- NO medical, sleep, eating, discipline, or screen time advice
+
+Return JSON array:
+[
+  {"title": "Short title (max 50 chars)", "body": "2-3 sentence description", "details": "1 sentence practical detail"},
+  {"title": "...", "body": "...", "details": "..."},
+  {"title": "...", "body": "...", "details": "..."}
+]`;
+
+            console.log('🤖 Calling OpenAI for location-based tips...');
+
+            const response = await Promise.race([
+                openai.chat.completions.create({
+                    model: process.env.OPENAI_TIPS_MODEL || 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'Generate location-specific parenting tips. Output valid JSON array only. Never provide harmful, violent, or illegal advice.',
+                        },
+                        { role: 'user', content: userMsg },
+                    ],
+                    temperature: 0.3,
+                    max_tokens: 600,
+                }),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('OpenAI timeout')), 8000)
+                ),
+            ]);
+
+            const raw = response.choices[0].message.content.trim();
+            let tips = JSON.parse(raw);
+
+            // Validate and format tips
+            if (!Array.isArray(tips)) {
+                tips = [tips];
+            }
+
+            tips = tips.slice(0, 3).map((tip, idx) => ({
+                id: `location_${Date.now()}_${idx}`,
+                title: String(tip.title || '').slice(0, 100),
+                body: String(tip.body || tip.description || ''),
+                details: String(tip.details || ''),
+                type: locationType,
+                location_name: locationName,
+                source: 'ai_location',
+                isGenerated: true,
+            }));
+
+            console.log(`✅ Generated ${tips.length} location-based tips`);
+
+            return tips;
+        } catch (error) {
+            console.error('❌ Error generating location-based tips:', error.message);
+            throw error;
+        }
+    }
 }
 
 export default new PersonalizationService();
