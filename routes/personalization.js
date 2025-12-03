@@ -698,6 +698,16 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             return res.status(400).json({ error: 'Prompt cannot be empty' });
         }
 
+        // Reject very short queries (single letters, "xx", etc.)
+        const meaningfulWords = sanitizedPrompt.split(/\s+/).filter(word => word.length > 2);
+        if (meaningfulWords.length === 0) {
+            return res.status(400).json({
+                error: 'Please ask a complete question',
+                message: 'Your question is too short. Try asking something like "How do I help my child with sharing?"',
+                isParentingRelated: false,
+            });
+        }
+
         if (sanitizedPrompt.length > 1000) {
             return res.status(400).json({ error: 'Prompt is too long (max 1000 characters)' });
         }

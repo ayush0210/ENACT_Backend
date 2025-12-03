@@ -10,7 +10,7 @@ router.get('/children', authenticateJWT, async (req, res) => {
         const user_id = req.user.id;
 
         const [rows] = await pool.query(
-            `SELECT id, nickname, age
+            `SELECT id, nickname, age, date_of_birth
        FROM children
        WHERE user_id = ?`,
             [user_id],
