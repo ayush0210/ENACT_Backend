@@ -54,11 +54,11 @@ router.post('/children', authenticateJWT, async (req, res) => {
         // Start transaction
         await connection.beginTransaction();
 
-        // Insert new child with date_of_birth
+        // Insert new child with both age and date_of_birth
         const [result] = await connection.query(
-            `INSERT INTO children (user_id, nickname, date_of_birth)
-       VALUES (?, ?, ?)`,
-            [user_id, nickname, formattedDOB],
+            `INSERT INTO children (user_id, nickname, age, date_of_birth)
+       VALUES (?, ?, ?, ?)`,
+            [user_id, nickname, age, formattedDOB],
         );
 
         // Update user's number_of_children
