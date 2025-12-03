@@ -45,14 +45,20 @@ router.post('/children', authenticateJWT, async (req, res) => {
             });
         }
 
+        // Calculate date_of_birth from age
+        const today = new Date();
+        const birthYear = today.getFullYear() - age;
+        const dateOfBirth = new Date(birthYear, today.getMonth(), today.getDate());
+        const formattedDOB = dateOfBirth.toISOString().split('T')[0]; // YYYY-MM-DD
+
         // Start transaction
         await connection.beginTransaction();
 
-        // Insert new child
+        // Insert new child with date_of_birth
         const [result] = await connection.query(
-            `INSERT INTO children (user_id, nickname, age)
+            `INSERT INTO children (user_id, nickname, date_of_birth)
        VALUES (?, ?, ?)`,
-            [user_id, nickname, age],
+            [user_id, nickname, formattedDOB],
         );
 
         // Update user's number_of_children
