@@ -5,12 +5,11 @@ const router = express.Router();
 
 router.get('/users', async (req, res) => {
     try {
-        const [result] = await pool.query('SELECT * FROM users;');
+        const [err, result] = await (pool.query('SELECT * FROM users;'));
         console.log(result);
-        return res.json({ message: 'Success', data: result });
+        return res.json('Success');
     } catch (err) {
         console.log(err);
-        return res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

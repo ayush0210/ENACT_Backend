@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS recordings (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    client_recording_id VARCHAR(100) NOT NULL,
+    user_id INT NOT NULL,
+    child_id INT NOT NULL,
+    status ENUM('queued', 'processing', 'completed', 'failed') NOT NULL DEFAULT 'queued',
+    audio_file_path VARCHAR(1024) NULL,
+    transcript LONGTEXT NULL,
+    classification_method VARCHAR(50) NULL,
+    recorded_at DATETIME NOT NULL,
+    duration_seconds DECIMAL(10,2) NULL,
+    word_count INT NULL,
+    words_per_minute DECIMAL(10,2) NULL,
+    category_word_counts JSON NULL,
+    category_percentages JSON NULL,
+    category_wpm JSON NULL,
+    classified_segments JSON NULL,
+    error_code VARCHAR(100) NULL,
+    error_message TEXT NULL,
+    transcript_expires_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_recordings_user_client (user_id, client_recording_id),
+    KEY idx_recordings_user_child_created (user_id, child_id, created_at),
+    KEY idx_recordings_status_created (status, created_at),
+    CONSTRAINT fk_recordings_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_recordings_child
+        FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE
+);

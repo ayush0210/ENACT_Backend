@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import url from 'url';
 import http from 'http';
 import location from './routes/location.js';
+import geofenceRouter from './routes/geofence.js';
 import 'dotenv/config';
 import morgan from 'morgan';
 import user from './routes/user.js';
@@ -17,6 +18,10 @@ import childrenRouter from './routes/children.js';
 import sessionRoutes from './routes/sessions.js';
 import dashboardRoutes from './routes/dashboard.js';
 import adminRoutes from './routes/adminRoutes.js';
+import activitiesRouter from './routes/activities.js';
+import issueReportsRouter from './routes/issueReports.js';
+import diagnosticsRouter from './routes/diagnostics.js';
+import recordingsRouter from './routes/recordings.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import personalizationRoutes, {
@@ -40,6 +45,10 @@ app.use('/endpoint', childrenRouter);
 app.use('/endpoint/session', sessionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/activities', activitiesRouter);
+app.use('/api/issue-reports', issueReportsRouter);
+app.use('/api/diagnostics', diagnosticsRouter);
+app.use('/api/recordings', recordingsRouter);
 import authroutes from './routes/auth.js';
 import { isStrictlyInScope } from './utils/strictDomains.js';
 import pool from './config/db.js';
@@ -53,6 +62,8 @@ app.use('/audio', express.static(path.join(__dirname, 'public', 'audio')));
 
 // Audio generation routes
 app.use('/api/tips/audio', audioRoutes);
+
+import { getApprovedActivities } from './utils/activityCache.js';
 
 // --- WS server wiring ---
 const server = http.createServer(app); // 👈 wrap express
@@ -74,6 +85,7 @@ wss.on('connection', async (ws, req) => {
         if (!query?.token) throw new Error('Missing token');
         req.user = jwt.verify(query.token, process.env.JWT_SECRET);
     } catch (e) {
+        console.log(`[WS] Auth failed: ${e.message} — closing 1008`);
         sendJSON(ws, { type: 'error', message: 'Unauthorized' });
         return ws.close(1008, 'Unauthorized');
     }
@@ -117,19 +129,13 @@ wss.on('connection', async (ws, req) => {
             }
 
             // --- your scope checks (same as REST) ---
-            let effectivePrompt = prompt;
-            const v = isStrictlyInScope(prompt);
+            const effectivePrompt = prompt;
+            const approvedActivities = await getApprovedActivities();
+            const v = isStrictlyInScope(prompt, approvedActivities);
             if (!v.isValid) {
-                if (looksLikeParentingPrompt(prompt)) {
-                    effectivePrompt = reframeAsParenting(
-                        prompt,
-                        'This question is about my child. Strictly provide age-appropriate, safe, practical parenting strategies.',
-                    );
-                } else {
-                    const { status, payload } = categoryReply(v.type, prompt);
-                    sendJSON(ws, { type: 'out_of_scope', status, payload });
-                    return ws.close();
-                }
+                const { status, payload } = categoryReply(v.reason ?? v.type, prompt);
+                sendJSON(ws, { type: 'out_of_scope', status, payload });
+                return ws.close();
             }
 
             // --- survey context (same SQL as REST) ---
@@ -138,16 +144,20 @@ wss.on('connection', async (ws, req) => {
                 [userId],
             );
 
-            let enhancedContentPrefs = [...contentPreferences];
+            let enhancedContentPrefs = Array.isArray(contentPreferences)
+                ? [...contentPreferences]
+                : [];
             let surveyContext = '';
             let hasSurveyData = false;
             if (surveyRows.length) {
                 const survey = surveyRows[0];
                 const userPrefs =
                     safeJSONParse(survey.content_preferences) ?? [];
-                enhancedContentPrefs = [
-                    ...new Set([...enhancedContentPrefs, ...userPrefs]),
-                ];
+                // The in-app selected content preferences are the active filter.
+                // Survey preferences only fill in when the app sends no active filter.
+                if (!enhancedContentPrefs.length) {
+                    enhancedContentPrefs = userPrefs;
+                }
                 hasSurveyData = true;
                 surveyContext = buildSurveyContext(survey);
             }
@@ -162,6 +172,11 @@ wss.on('connection', async (ws, req) => {
             // --- stream AI tips first ---
             let emitted = 0;
             if (generateMode === 'generate' || generateMode === 'hybrid') {
+                const scoringContextPromise =
+                    personalizationService.buildGeneratedTipScoringContext(
+                        userId,
+                        effectivePrompt,
+                    );
                 await personalizationService.generateTipsStreamNDJSON({
                     ws,
                     abortedRef: () => aborted,
@@ -173,35 +188,37 @@ wss.on('connection', async (ws, req) => {
                     onPhase: phase =>
                         sendJSON(ws, { type: 'phase', data: phase }),
                     onTip: async tip => {
+                        if (emitted >= 3) return;
                         const scored =
                             await personalizationService.scoreSingleGeneratedTip(
                                 {
                                     userId,
                                     query: effectivePrompt,
                                     tip,
+                                    context: scoringContextPromise,
+                                    strict: false,
                                 },
                             );
-                        if (!scored) return;
                         emitted += 1;
                         sendJSON(ws, {
                             type: 'tip',
                             source: 'ai',
-                            data: scored,
+                            data: scored || tip,
                         });
                     },
                 });
             }
 
-            // --- DB fallback if AI produced nothing ---
+            // --- DB fallback/top-up if AI produced fewer than 3 tips ---
             if (
-                emitted === 0 &&
+                emitted < 3 &&
                 (generateMode === 'database' || generateMode === 'hybrid')
             ) {
                 const dbResult =
                     await personalizationService.getContextualPersonalizedTips(
                         userId,
                         effectivePrompt,
-                        5,
+                        3 - emitted,
                         enhancedContentPrefs,
                     );
                 if (dbResult?.tips?.length) {
@@ -230,6 +247,7 @@ app.get('/', async (req, res) => {
     return res.send('Active');
 });
 app.use('/endpoint', location);
+app.use('/endpoint', geofenceRouter);
 const port = process.env.PORT || 1337;
 server.listen(port, err => {
     if (err) console.log(err);

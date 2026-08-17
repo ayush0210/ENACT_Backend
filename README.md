@@ -79,6 +79,14 @@ A Node.js/Express backend API powering the Talk Around Town mobile application, 
 - MySQL transactions for data consistency
 - Error handling and rollback mechanisms
 
+### Recording analysis
+
+- Authenticated child-specific audio uploads
+- Rev.ai speech-to-text processing
+- Science, social, literature, and language segment classification
+- Idempotent client recording identifiers and asynchronous status polling
+- See `docs/recording-deployment.md` for migration and deployment instructions
+
 ## Setup Instructions
 
 1. Clone the repository

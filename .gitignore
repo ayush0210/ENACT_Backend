@@ -1,7 +1,23 @@
-key.json
-key.json.backup
-*.pem
-*.p12
+# dependencies
+node_modules/
+# environment/secrets
 .env
-.env.*
-*.credentials.json
+*.env
+key.json
+*.backup
+token.txt
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+# db dumps / exports
+*.sql
+!migrations/
+!migrations/*.sql
+database_export/
+backup.sql
+tat_backup.sql
+tat_do_full.sql
+# OS/editor
+.DS_Store

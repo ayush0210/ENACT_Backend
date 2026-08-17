@@ -5,9 +5,9 @@ import {
     isStrictlyInScope,
     REJECTION_MESSAGE,
 } from '../utils/strictDomains.js';
+import { getApprovedActivities } from '../utils/activityCache.js';
 import pool from '../config/db.js';
 import {
-    validateParentingQuery,
     CATEGORY_RESPONSES,
 } from '../utils/parentingGuardrails.js';
 
@@ -64,6 +64,7 @@ const router = express.Router();
 export function categoryReply(category, originalQuery) {
     const cfg =
         CATEGORY_RESPONSES[category] || CATEGORY_RESPONSES.non_parenting;
+
     // You can tailor suggestion seeds here by category if you want
     const suggestions = [
         'Ask about a calming bedtime routine',
@@ -88,15 +89,18 @@ router.post('/interactions', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const { tipId, interactionType, tipPayload } = req.body;
+
         const validTypes = ['like', 'dislike', 'save', 'unsave'];
         if (!validTypes.includes(interactionType)) {
             return res.status(400).json({
                 error: 'Invalid interaction type. Must be one of: like, dislike, save, unsave',
             });
         }
+
         if (!tipId) {
             return res.status(400).json({ error: 'Tip ID is required' });
         }
+
         let finalTipId = tipId;
         if (String(tipId).startsWith('generated_')) {
             finalTipId = await personalizationService.upsertGeneratedTip(
@@ -104,11 +108,13 @@ router.post('/interactions', authenticateJWT, async (req, res) => {
                 tipPayload,
             );
         }
+
         await personalizationService.trackUserInteraction(
             userId,
             finalTipId,
             interactionType,
         );
+
         res.status(200).json({
             message: 'Interaction tracked successfully',
             userId,
@@ -132,10 +138,12 @@ router.get('/recommendations', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const limit = parseInt(req.query.limit) || 10;
+
         const tips = await personalizationService.getPersonalizedTips(
             userId,
             limit,
         );
+
         res.status(200).json({
             tips,
             userId,
@@ -162,39 +170,42 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
             contentPreferences = [],
             generateMode = 'hybrid',
         } = req.body;
+
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
 
-        // Soft override handling
-        let effectivePrompt = prompt;
-        const v = validateParentingQuery(prompt);
+        // Strict 4-domain validation: Language Development, Early Science Skills,
+        // Literacy Foundations, Social-Emotional Learning — nothing else.
+        const approvedActivities = await getApprovedActivities();
+        const v = isStrictlyInScope(prompt, approvedActivities);
         if (!v.isValid) {
-            if (looksLikeParentingPrompt(prompt)) {
-                effectivePrompt = reframeAsParenting(
-                    prompt,
-                    'This question is about my child. Provide age-appropriate, safe, practical parenting strategies.',
-                );
-            } else {
-                const { status, payload } = categoryReply(v.type, prompt);
-                return res.status(status).json(payload);
-            }
+            return res.status(400).json({
+                error: 'out_of_scope',
+                message: REJECTION_MESSAGE,
+                isParentingRelated: false,
+                originalQuery: prompt,
+            });
         }
+
+        const effectivePrompt = prompt;
 
         console.log(
             `✅ Validated parenting query (mode: ${generateMode}) original="${prompt}" effective="${effectivePrompt}"`,
         );
 
         let result = null;
+
         if (generateMode === 'generate') {
             // Pure AI mode (respect contentPreferences)
             result =
                 await personalizationService.generatePersonalizedTipsForQuery(
                     userId,
                     effectivePrompt,
-                    5,
+                    3,
                     contentPreferences,
                 );
+
             return res.status(200).json({
                 tips: result.tips,
                 isPersonalized: result.isPersonalized,
@@ -214,6 +225,7 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                 3,
                 contentPreferences,
             );
+
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -235,6 +247,7 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                 3,
                 contentPreferences,
             );
+
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -259,6 +272,7 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
                     3,
                     contentPreferences,
                 );
+
             if (result.tips && result.tips.length > 0) {
                 return res.status(200).json({
                     tips: result.tips,
@@ -302,25 +316,27 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
 router.post('/generate-tips', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-        const { prompt, count = 5, contentPreferences = [] } = req.body;
+        const { prompt, count = 3, contentPreferences = [] } = req.body;
+        const effectiveCount = Math.min(count, 3);
+
         if (!prompt) {
             return res.status(400).json({ error: 'Prompt is required' });
         }
 
-        // Soft override handling
-        let effectivePrompt = prompt;
-        const v = validateParentingQuery(prompt);
+        // Strict 4-domain validation: Language Development, Early Science Skills,
+        // Literacy Foundations, Social-Emotional Learning — nothing else.
+        const approvedActivities = await getApprovedActivities();
+        const v = isStrictlyInScope(prompt, approvedActivities);
         if (!v.isValid) {
-            if (looksLikeParentingPrompt(prompt)) {
-                effectivePrompt = reframeAsParenting(
-                    prompt,
-                    'This question is about my child. Provide age-appropriate, safe, practical parenting strategies.',
-                );
-            } else {
-                const { status, payload } = categoryReply(v.type, prompt);
-                return res.status(status).json(payload);
-            }
+            return res.status(400).json({
+                error: 'out_of_scope',
+                message: REJECTION_MESSAGE,
+                isParentingRelated: false,
+                originalQuery: prompt,
+            });
         }
+
+        const effectivePrompt = prompt;
 
         console.log(
             `🤖 AI generation request (original="${prompt}", effective="${effectivePrompt}") user=${userId}`,
@@ -330,9 +346,10 @@ router.post('/generate-tips', authenticateJWT, async (req, res) => {
             await personalizationService.generatePersonalizedTipsForQuery(
                 userId,
                 effectivePrompt,
-                count,
+                effectiveCount,
                 contentPreferences,
             );
+
         res.status(200).json({
             tips: result.tips,
             isPersonalized: result.isPersonalized,
@@ -377,10 +394,12 @@ router.post('/ai-interactions/batch', authenticateJWT, async (req, res) => {
         }
 
         let persisted = 0;
+
         for (const item of interactions) {
             // accept either interactionType or kind
             const interactionType = item?.interactionType || item?.kind;
             const rawTipId = item?.tipId;
+
             if (
                 !interactionType ||
                 !['like', 'dislike', 'save', 'unsave'].includes(interactionType)
@@ -418,10 +437,13 @@ router.post('/ai-interactions/batch', authenticateJWT, async (req, res) => {
     }
 });
 
+// Save personalization survey — handled below
+
 // Profile summary
 router.get('/profile', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
+
         const [profile] = await pool.query(
             `
       SELECT 
@@ -470,10 +492,12 @@ export function safeJSONParse(jsonString, fallback = []) {
         if (!jsonString && jsonString !== 0) {
             return fallback;
         }
+
         // If it's already an array, return it
         if (Array.isArray(jsonString)) {
             return jsonString;
         }
+
         // If it's a string, try to parse it
         if (typeof jsonString === 'string') {
             // Handle case where it might just be a comma-separated string
@@ -484,11 +508,14 @@ export function safeJSONParse(jsonString, fallback = []) {
                     .map(item => item.trim())
                     .filter(Boolean);
             }
+
             return JSON.parse(jsonString);
         }
+
         return fallback;
     } catch (error) {
         console.error('JSON parse error:', error.message, 'Input:', jsonString);
+
         // Try to salvage the data if it's comma-separated
         if (typeof jsonString === 'string' && jsonString.includes(',')) {
             return jsonString
@@ -496,10 +523,12 @@ export function safeJSONParse(jsonString, fallback = []) {
                 .map(item => item.trim())
                 .filter(Boolean);
         }
+
         // If it's a single value, wrap it in an array
         if (typeof jsonString === 'string' && jsonString.length > 0) {
             return [jsonString.trim()];
         }
+
         return fallback;
     }
 }
@@ -508,77 +537,40 @@ router.post('/survey', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
         const { surveyData } = req.body;
+
         if (!surveyData) {
             return res.status(400).json({ error: 'Survey data is required' });
         }
 
         const {
-            contentPreferences = [],
-            challengeAreas = [],
-            parentingGoals = [],
-            engagementFrequency,
-            currentChallenge,
+            childInterests,
             additionalNotes,
         } = surveyData;
 
-        // Validate required fields
-        if (!engagementFrequency) {
-            return res
-                .status(400)
-                .json({ error: 'Engagement frequency is required' });
-        }
-
-        const validFrequencies = [
-            'daily',
-            'few-times-week',
-            'weekly',
-            'on-demand',
-        ];
-        if (!validFrequencies.includes(engagementFrequency)) {
-            return res.status(400).json({
-                error: 'Invalid engagement frequency',
-                validOptions: validFrequencies,
-            });
-        }
-
         console.log(`💾 Saving survey for user ${userId}:`, {
-            contentPreferences: contentPreferences.length,
-            challengeAreas: challengeAreas.length,
-            parentingGoals: parentingGoals.length,
-            engagementFrequency,
+            hasChildInterests: !!childInterests,
+            hasAdditionalNotes: !!additionalNotes,
         });
 
         // Save survey response
         await pool.query(
             `
-      INSERT INTO user_survey_responses 
-      (user_id, content_preferences, challenge_areas, parenting_goals, 
-       engagement_frequency, current_challenge, additional_notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO user_survey_responses
+      (user_id, current_challenge, additional_notes, content_preferences, challenge_areas, parenting_goals, engagement_frequency)
+      VALUES (?, ?, ?, '[]', '[]', '[]', 'as_needed')
       ON DUPLICATE KEY UPDATE
-      content_preferences = VALUES(content_preferences),
-      challenge_areas = VALUES(challenge_areas),
-      parenting_goals = VALUES(parenting_goals),
-      engagement_frequency = VALUES(engagement_frequency),
       current_challenge = VALUES(current_challenge),
       additional_notes = VALUES(additional_notes),
       updated_at = CURRENT_TIMESTAMP
     `,
             [
                 userId,
-                JSON.stringify(contentPreferences),
-                JSON.stringify(challengeAreas),
-                JSON.stringify(parentingGoals),
-                engagementFrequency,
-                currentChallenge || null,
+                childInterests || null,
                 additionalNotes || null,
             ],
         );
 
-        // Generate embeddings for survey preferences
-        await generateSurveyEmbeddings(userId, surveyData);
-
-        // Update combined preference profile
+        // Update combined preference profile from any existing interaction embeddings
         await updateCombinedPreferenceProfile(userId);
 
         res.status(200).json({
@@ -586,11 +578,7 @@ router.post('/survey', authenticateJWT, async (req, res) => {
             message: 'Survey saved successfully',
             userId,
             surveyData: {
-                contentPreferences,
-                challengeAreas,
-                parentingGoals,
-                engagementFrequency,
-                hasCurrentChallenge: !!currentChallenge,
+                hasChildInterests: !!childInterests,
                 hasAdditionalNotes: !!additionalNotes,
             },
         });
@@ -610,6 +598,7 @@ router.post('/survey', authenticateJWT, async (req, res) => {
 router.get('/survey-status', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
+
         const [survey] = await pool.query(
             'SELECT completed_at, updated_at FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -637,6 +626,7 @@ router.get('/survey-status', authenticateJWT, async (req, res) => {
 router.get('/survey', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
+
         const [survey] = await pool.query(
             'SELECT * FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -688,50 +678,24 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             generateMode = 'hybrid',
         } = req.body;
 
-        // BUGFIX: Validate prompt input
-        if (!prompt || typeof prompt !== 'string') {
-            return res.status(400).json({ error: 'Prompt is required and must be a string' });
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required' });
         }
 
-        const sanitizedPrompt = prompt.trim();
-        if (sanitizedPrompt.length === 0) {
-            return res.status(400).json({ error: 'Prompt cannot be empty' });
-        }
-
-        // Reject very short queries (single letters, "xx", etc.)
-        const meaningfulWords = sanitizedPrompt.split(/\s+/).filter(word => word.length > 2);
-        if (meaningfulWords.length === 0) {
+        // Strict 4-domain validation: Language Development, Early Science Skills,
+        // Literacy Foundations, Social-Emotional Learning — nothing else.
+        const approvedActivities = await getApprovedActivities();
+        const v = isStrictlyInScope(prompt, approvedActivities);
+        if (!v.isValid) {
             return res.status(400).json({
-                error: 'Please ask a complete question',
-                message: 'Your question is too short. Try asking something like "How do I help my child with sharing?"',
+                error: 'out_of_scope',
+                message: REJECTION_MESSAGE,
                 isParentingRelated: false,
+                originalQuery: prompt,
             });
         }
 
-        if (sanitizedPrompt.length > 1000) {
-            return res.status(400).json({ error: 'Prompt is too long (max 1000 characters)' });
-        }
-
-        // Soft override handling
-        let effectivePrompt = sanitizedPrompt;
-        const v = isStrictlyInScope(sanitizedPrompt);
-        if (!v.isValid) {
-            // CRITICAL: Block harmful content even if it has child terms
-            if (v.reason === 'harmful_content') {
-                const { status, payload } = categoryReply(v.reason, sanitizedPrompt);
-                return res.status(status).json(payload);
-            }
-
-            if (looksLikeParentingPrompt(sanitizedPrompt)) {
-                effectivePrompt = reframeAsParenting(
-                    sanitizedPrompt,
-                    'This question is about my child. Strictly Provide age-appropriate, safe, practical parenting strategies.',
-                );
-            } else {
-                const { status, payload } = categoryReply(v.type, sanitizedPrompt);
-                return res.status(status).json(payload);
-            }
-        }
+        const effectivePrompt = prompt;
 
         console.log(
             `✅ Validated parenting query (survey) mode=${generateMode} original="${prompt}" effective="${effectivePrompt}"`,
@@ -765,57 +729,8 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
 
         let result = null;
 
-        // Detect if user is asking a question (needs AI) vs searching for topic (can use DB)
-        const isQuestion =
-            /\b(what|how|why|when|where|should|can|could|would|do|does|is|are)\b.*\?/i.test(sanitizedPrompt) ||
-            /\b(what|how|why|should|can|could|would)\b.*\b(do|does|gonna|going to|should|activities|activity|ideas)\b/i.test(sanitizedPrompt) ||
-            /\b(what|how)\s+(should|can|could|do|to do)\b/i.test(sanitizedPrompt) ||  // "what should I do", "how to do"
-            /\b(give me|tell me|show me|help me|suggest|recommend)\b/i.test(sanitizedPrompt) ||  // Request patterns
-            /\btoday\b.*\b(what|how|should|do)\b/i.test(sanitizedPrompt);  // "today what should I do"
-
-        if (isQuestion) {
-            console.log(`🤔 Detected question - skipping DB, using AI generation: "${sanitizedPrompt}"`);
-        }
-
-        // OPTIMIZATION: Hybrid mode should try DB first (fast), then AI fallback
-        // BUT: Skip DB for questions - they need AI generation to answer directly
-        if ((generateMode === 'hybrid' || generateMode === 'database') && !isQuestion) {
-            // Try database search first (much faster)
-            result = await personalizationService.getContextualPersonalizedTips(
-                userId,
-                effectivePrompt,
-                5,
-                enhancedContentPrefs,
-            );
-
-            if (result.tips && result.tips.length > 0) {
-                return res.status(200).json({
-                    tips: result.tips,
-                    isPersonalized: result.isPersonalized || hasSurveyData,
-                    isGenerated: false,
-                    hasSurveyPersonalization: hasSurveyData,
-                    originalQuery: prompt,
-                    source: 'database_search_with_survey',
-                    message: `Found ${result.tips.length} relevant parenting tips about "${prompt}"`,
-                });
-            }
-
-            // If database mode only, stop here
-            if (generateMode === 'database') {
-                return res.status(200).json({
-                    tips: [],
-                    isPersonalized: hasSurveyData,
-                    isGenerated: false,
-                    hasSurveyPersonalization: hasSurveyData,
-                    originalQuery: prompt,
-                    source: 'no_results',
-                    message: `No database tips found for "${prompt}"`,
-                });
-            }
-        }
-
-        // AI generation (for 'generate' mode or 'hybrid' fallback)
         if (generateMode === 'generate' || generateMode === 'hybrid') {
+            // Try AI generation with survey context
             const enhancedPrompt = surveyContext
                 ? `${effectivePrompt}\n\nUser Context: ${surveyContext}`
                 : effectivePrompt;
@@ -843,7 +758,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
                     isGenerated: result.isGenerated,
                     hasSurveyPersonalization: hasSurveyData,
                     originalQuery: prompt,
-                    source: generateMode === 'hybrid' ? 'ai_fallback_with_survey' : 'ai_generated_with_survey',
+                    source: 'ai_generated_with_survey',
                     message: hasSurveyData
                         ? `Generated ${result.tips.length} personalized parenting tips about "${prompt}" based on your survey preferences!`
                         : `Generated ${result.tips.length} parenting tips about "${prompt}"`,
@@ -852,7 +767,30 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
             }
         }
 
+        if (generateMode === 'database' || generateMode === 'hybrid') {
+            // Try database search with enhanced preferences
+            result = await personalizationService.getContextualPersonalizedTips(
+                userId,
+                effectivePrompt,
+                5,
+                enhancedContentPrefs,
+            );
+
+            if (result.tips && result.tips.length > 0) {
+                return res.status(200).json({
+                    tips: result.tips,
+                    isPersonalized: result.isPersonalized || hasSurveyData,
+                    isGenerated: false,
+                    hasSurveyPersonalization: hasSurveyData,
+                    originalQuery: prompt,
+                    source: 'database_search_with_survey',
+                    message: `Found ${result.tips.length} relevant parenting tips about "${prompt}"`,
+                });
+            }
+        }
+
         // No results found
+
         res.status(200).json({
             tips: [],
             isPersonalized: hasSurveyData,
@@ -878,6 +816,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
 router.get('/survey-analytics', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
+
         const [survey] = await pool.query(
             'SELECT completed_at FROM user_survey_responses WHERE user_id = ?',
             [userId],
@@ -917,6 +856,7 @@ router.get('/survey-analytics', authenticateJWT, async (req, res) => {
             data.interactions_after > 0
                 ? (data.likes_after / data.interactions_after) * 100
                 : 0;
+
         const improvement = likeRateAfter - likeRateBefore;
 
         res.status(200).json({
@@ -934,8 +874,8 @@ router.get('/survey-analytics', authenticateJWT, async (req, res) => {
                     improvement > 5
                         ? `Your tip relevance improved by ${Math.round(improvement)}% after completing the survey!`
                         : data.interactions_after < 5
-                        ? 'Keep interacting with tips to see your personalization improvement!'
-                        : 'Your personalized tips are getting better as you use the app!',
+                          ? 'Keep interacting with tips to see your personalization improvement!'
+                          : 'Your personalized tips are getting better as you use the app!',
             },
         });
     } catch (error) {
@@ -967,6 +907,7 @@ async function generateSurveyEmbeddings(userId, surveyData) {
     ];
 
     for (const { type, values } of preferenceTypes) {
+        if (!Array.isArray(values) || values.length === 0) continue;
         for (const value of values) {
             try {
                 const descriptiveText = getDescriptiveText(type, value);
@@ -1053,24 +994,26 @@ export function buildSurveyContext(survey) {
     const goals = safeJSONParse(survey.parenting_goals);
 
     let context = '';
+
     if (contentPrefs.length > 0) {
         context += `User prefers ${contentPrefs.join(', ')} type content. `;
     }
+
     if (challenges.length > 0) {
         context += `Current challenges include: ${challenges.join(', ')}. `;
     }
+
     if (goals.length > 0) {
         context += `Parenting goals: ${goals.join(', ')}. `;
     }
-    if (survey.current_challenge) {
-        context += `Specific current challenge: ${survey.current_challenge}. `;
-    }
+
     return context;
 }
 
 async function updateCombinedPreferenceProfile(userId) {
     // This integrates survey data with your existing interaction-based preferences
     // The survey embeddings will be combined with like/dislike embeddings
+
     try {
         // Get existing interaction-based preference
         const [existingProfile] = await pool.query(
@@ -1104,6 +1047,7 @@ async function updateCombinedPreferenceProfile(userId) {
                 ? row.embedding
                 : JSON.parse(row.embedding),
         );
+
         const dimension = surveyVectors[0].length;
         const surveyAverage = new Array(dimension).fill(0);
 
@@ -1112,6 +1056,7 @@ async function updateCombinedPreferenceProfile(userId) {
                 surveyAverage[i] += vector[i];
             }
         }
+
         for (let i = 0; i < dimension; i++) {
             surveyAverage[i] /= surveyVectors.length;
         }
@@ -1125,6 +1070,7 @@ async function updateCombinedPreferenceProfile(userId) {
                 'SELECT COUNT(*) as count FROM user_tip_interactions WHERE user_id = ?',
                 [userId],
             );
+
             const interactions = interactionCount[0].count;
             surveyWeight = Math.max(0.3, 0.7 - interactions * 0.02);
 
@@ -1171,6 +1117,11 @@ async function updateCombinedPreferenceProfile(userId) {
 
 async function applySurveyScoring(tips, surveyData) {
     // Apply additional scoring based on survey preferences
+    // const [surveyData] = await pool.query(
+    //     'SELECT content_preferences, challenge_areas, parenting_goals FROM user_survey_responses WHERE user_id = ?',
+    //     [userId],
+    // );
+
     if (surveyData.length === 0) return tips;
 
     const survey = surveyData[0];
@@ -1200,9 +1151,16 @@ async function applySurveyScoring(tips, surveyData) {
     addWeighted(challenges, getKeywordsForChallenge, 0.08);
     addWeighted(goals, getKeywordsForGoal, 0.06);
 
+    // (Optional) If you expect a *lot* of keywords (e.g., > 60), a single regex
+    // can be faster than many includes() calls. Keep behavior identical by using
+    // substring matches (no word boundaries). Commented out by default.
+    // const bigList = [...keywordWeights.keys()].map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    // const megaRe = bigList.length ? new RegExp(bigList.join('|'), 'i') : null;
+
     return tips
         .map(tip => {
             let boost = 0;
+
             // Build the searchable blob ONCE
             const tipText = (
                 (tip.title || '') +
@@ -1213,9 +1171,20 @@ async function applySurveyScoring(tips, surveyData) {
             ).toLowerCase();
 
             // Fast path: iterate keywords once, add weight when found
+            // (keeps your "at least one occurrence => +weight" semantics)
             for (const [kw, weight] of keywordWeights) {
                 if (tipText.indexOf(kw) !== -1) boost += weight;
             }
+
+            // If using the optional mega regex above, you can short-circuit tips that
+            // have no keywords at all (saves the loop for many negatives):
+            // if (megaRe && !megaRe.test(tipText)) {
+            //   // no matches at all -> boost stays 0
+            // } else {
+            //   for (const [kw, weight] of keywordWeights) {
+            //     if (tipText.indexOf(kw) !== -1) boost += weight;
+            //   }
+            // }
 
             const base =
                 tip.similarity_score == null ? 0.5 : tip.similarity_score;
@@ -1228,7 +1197,56 @@ async function applySurveyScoring(tips, surveyData) {
                 hasSurveyBoost: boost > 0,
             };
         })
-        .sort((a, b) => b.similarity_score - a.similarity_score);
+        .sort((a, b) => {
+            b.similarity_score - a.similarity_score;
+        });
+
+    // return tips
+    //     .map(tip => {
+    //         let boost = 0;
+    //         const tipText =
+    //             `${tip.title} ${tip.body} ${tip.details}`.toLowerCase();
+
+    //         // Content preference matching (boost by 5% per match)
+    //         contentPrefs.forEach(pref => {
+    //             const keywords = getKeywordsForPreference(pref);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.05;
+    //         });
+
+    //         // Challenge matching (boost by 8% per match)
+    //         challenges.forEach(challenge => {
+    //             const keywords = getKeywordsForChallenge(challenge);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.08;
+    //         });
+
+    //         // Goal matching (boost by 6% per match)
+    //         goals.forEach(goal => {
+    //             const keywords = getKeywordsForGoal(goal);
+    //             const matches = keywords.filter(keyword =>
+    //                 tipText.includes(keyword),
+    //             ).length;
+    //             boost += matches * 0.06;
+    //         });
+
+    //         const newScore = Math.min(
+    //             (tip.similarity_score || 0.5) + boost,
+    //             1.0,
+    //         );
+
+    //         return {
+    //             ...tip,
+    //             similarity_score: Math.round(newScore * 1000) / 1000,
+    //             survey_boost: Math.round(boost * 1000) / 1000,
+    //             hasSurveyBoost: boost > 0,
+    //         };
+    //     })
+    //     .sort((a, b) => b.similarity_score - a.similarity_score);
 }
 
 // Upsert generated tips so they can be referenced by interactions/embeddings

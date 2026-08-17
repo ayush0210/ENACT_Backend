@@ -5,24 +5,8 @@ import pool from '../config/db.js';
 import { authenticateJWT } from './middleware.js';
 import express from 'express';
 import nodemailer from 'nodemailer';
-import sgMail from '@sendgrid/mail';
 
 const router = express.Router();
-
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-// Configure nodemailer as fallback (Gmail SMTP)
-const gmailTransporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.SENDGRID_FROM, // Use same email
-        pass: process.env.GMAIL_APP_PASSWORD, // Add this to .env
-    },
-});
-
-// Rate limiting for password resets (prevent quota exhaustion)
-const resetRateLimiter = new Map();
-const RESET_COOLDOWN = 60000; // 1 minute between reset requests per email
 
 // Input validation helper
 const validateEmail = email => {
@@ -31,11 +15,12 @@ const validateEmail = email => {
 };
 
 // Valid caregiver types
-const CAREGIVER_TYPES = ['parent', 'grandparent', 'guardian', 'nanny', 'other_family', 'other'];
+const VALID_CAREGIVER_TYPES = ['parent', 'grandparent', 'guardian', 'nanny', 'other_family', 'other'];
 
 // Register handler
 const register = async (req, res) => {
-    const { name, email, password, location, children, caregiverType } = req.body;
+    const { name, email, password, location, children } = req.body;
+    const caregiverType = children?.caregiverType;
     console.log('Registration request:', { name, email, location, children, caregiverType });
 
     let connection;
@@ -55,10 +40,10 @@ const register = async (req, res) => {
                 .status(400)
                 .json({ error: 'Password must be at least 8 characters long' });
         }
-        if (caregiverType && !CAREGIVER_TYPES.includes(caregiverType)) {
+        if (caregiverType && !VALID_CAREGIVER_TYPES.includes(caregiverType)) {
             return res
                 .status(400)
-                .json({ error: `Invalid caregiver type. Must be one of: ${CAREGIVER_TYPES.join(', ')}` });
+                .json({ error: `Invalid caregiver type. Must be one of: ${VALID_CAREGIVER_TYPES.join(', ')}` });
         }
 
         // Check for existing email
@@ -79,13 +64,10 @@ const register = async (req, res) => {
         const numberOfChildren = children?.numberOfChildren || 0;
         const childrenDetails = children?.childrenDetails || [];
 
-        // Use email username as default name if not provided
-        const userName = name || email.split('@')[0];
-
         // Insert user
         const [userResult] = await connection.query(
             'INSERT INTO users (name, email, password, number_of_children, caregiver_type) VALUES (?, ?, ?, ?, ?)',
-            [userName, email, hashedPassword, numberOfChildren, caregiverType || null],
+            [name, email, hashedPassword, numberOfChildren, caregiverType || null],
         );
 
         const userId = userResult.insertId;
@@ -96,26 +78,27 @@ const register = async (req, res) => {
             Array.isArray(childrenDetails) &&
             childrenDetails.length > 0
         ) {
-            // Validate age values
+            // Validate age values (must be integer 1-5)
             for (const child of childrenDetails) {
-                if (!child.age || child.age < 1 || child.age > 5 || !Number.isInteger(child.age)) {
+                if (!Number.isInteger(child.age) || child.age < 0 || child.age > 5) {
                     await connection.rollback();
-                    return res.status(400).json({ error: 'Child age must be an integer between 1 and 5' });
+                    return res.status(400).json({
+                        error: 'Child age must be an integer between 0 and 5'
+                    });
                 }
             }
 
             const childrenValues = childrenDetails.map(child => {
-                // Calculate approximate date of birth from age
-                const today = new Date();
-                const birthYear = today.getFullYear() - child.age;
-                const dateOfBirth = new Date(birthYear, today.getMonth(), today.getDate());
-                const formattedDOB = dateOfBirth.toISOString().split('T')[0]; // YYYY-MM-DD
+                // Calculate approximate date_of_birth from age
+                const dob = new Date();
+                dob.setFullYear(dob.getFullYear() - child.age);
+                const dobString = dob.toISOString().split('T')[0]; // YYYY-MM-DD format
 
                 return [
                     userId,
                     child.nickname,
                     child.age,
-                    formattedDOB
+                    child.date_of_birth || dobString,
                 ];
             });
 
@@ -164,7 +147,7 @@ const register = async (req, res) => {
             refresh_token: refreshToken,
             user: {
                 id: userId,
-                name: userName,
+                name,
                 email,
                 number_of_children: numberOfChildren,
             },
@@ -193,7 +176,6 @@ const register = async (req, res) => {
         }
     }
 };
-
 // Login handler
 const login = async (req, res) => {
     const { email, password } = req.body;
@@ -221,7 +203,7 @@ const login = async (req, res) => {
 
         if (user.number_of_children > 0) {
             const [children] = await pool.query(
-                'SELECT id, nickname, age FROM children WHERE user_id = ? ORDER BY age DESC',
+                'SELECT id, nickname, age FROM children WHERE user_id = ? ORDER BY age',
                 [user.id],
             );
             user.children = children;
@@ -363,20 +345,106 @@ const refreshAccessToken = async (req, res) => {
     }
 };
 
+// const requestPasswordReset = async (req, res) => {
+//   const { email } = req.body;
+
+//   try {
+//     // Check if user exists
+//     const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+
+//     if (users.length === 0) {
+//       return res.status(404).json({ message: 'User not found' });
+//     }
+
+//     // Generate reset token
+//     const resetToken = crypto.randomBytes(32).toString('hex');
+//     const hashedResetToken = await bcrypt.hash(resetToken, 12);
+
+//     // Set token expiration (1 hour from now)
+//     const expiryDate = new Date(Date.now() + 3600000);
+
+//     // Save reset token and expiry in database
+//     await pool.query(
+//       'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE email = ?',
+//       [hashedResetToken, expiryDate, email]
+//     );
+
+//     // Create email transporter
+//     const transporter = nodemailer.createTransport({
+//       host: 'smtp.gmail.com',
+//       port: 587,
+//       secure: false,
+//       auth: {
+//         user: process.env.EMAIL_USER,
+//         pass: process.env.EMAIL_PASS
+//       }
+//     });
+
+//     // Reset link (update with your frontend URL)
+//     // In requestPasswordReset function
+// const androidDeepLink = `intent://reset-password/${resetToken}#Intent;scheme=talkaroundtown;package=com.talk_around_town_trail;end`;
+// const iosDeepLink = `talkaroundtown://reset-password/${resetToken}`;
+// const webFallbackLink = `http://68.183.102.75:1337/reset-password/${resetToken}`;
+
+// await transporter.sendMail({
+//   from: process.env.EMAIL_USER,
+//   to: email,
+//   subject: 'Password Reset Request',
+//   html: `
+//     <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+//       <h1 style="color: #4A90E2; text-align: center;">Password Reset Request</h1>
+//       <p style="color: #666; font-size: 16px;">You requested a password reset for your Talk Around Town account.</p>
+//       <div style="text-align: center; margin: 30px 0;">
+//         <a href="${androidDeepLink}"
+//            style="background-color: #4A90E2;
+//                   color: white;
+//                   padding: 12px 30px;
+//                   text-decoration: none;
+//                   border-radius: 5px;
+//                   display: inline-block;
+//                   font-size: 16px;
+//                   margin-bottom: 15px;">
+//           Reset Password (Android)
+//         </a>
+//         <br/>
+//         <a href="${iosDeepLink}"
+//            style="background-color: #4A90E2;
+//                   color: white;
+//                   padding: 12px 30px;
+//                   text-decoration: none;
+//                   border-radius: 5px;
+//                   display: inline-block;
+//                   font-size: 16px;">
+//           Reset Password (iOS)
+//         </a>
+//         <p style="margin-top: 20px; color: #666;">Or copy and paste this code in the app:</p>
+//         <p style="color: #4A90E2; font-size: 18px; font-family: monospace; background: #f5f5f5; padding: 10px; border-radius: 5px;">${resetToken}</p>
+//       </div>
+//       <p style="color: #666; font-size: 14px;">This code will expire in 1 hour.</p>
+//       <p style="color: #999; font-size: 14px;">If you didn't request this, please ignore this email.</p>
+//       <p style="color: #999; font-size: 12px;">For security, this code will only work once.</p>
+//     </div>
+//   `
+// });
+
+//     res.status(200).json({
+//       message: 'Password reset instructions sent to email',
+//       success: true
+//     });
+
+//   } catch (error) {
+//     console.error('Password reset request error:', error);
+//     res.status(500).json({
+//       message: 'Error processing password reset request',
+//       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//     });
+//   }
+// };
+
 const requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
     try {
-        // Rate limiting check
-        const lastRequest = resetRateLimiter.get(email);
-        if (lastRequest && Date.now() - lastRequest < RESET_COOLDOWN) {
-            const waitTime = Math.ceil((RESET_COOLDOWN - (Date.now() - lastRequest)) / 1000);
-            return res.status(429).json({
-                message: `Please wait ${waitTime} seconds before requesting another reset`,
-                cooldown: true
-            });
-        }
-
         // Check if user exists
         const [users] = await pool.query(
             'SELECT id FROM users WHERE email = ?',
@@ -402,93 +470,47 @@ const requestPasswordReset = async (req, res) => {
         const html = `
       <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #4A90E2; text-align: center;">Password Reset Request</h1>
-        <p style="color: #666; font-size: 16px;">You requested a password reset for your Talk Around Town account.</p>
-
-        <div style="text-align: center; margin: 40px 0;">
-          <p style="color: #333; font-size: 16px; margin-bottom: 10px;">Copy and paste this code in the app:</p>
-          <div style="background: #f5f5f5; border: 2px solid #4A90E2; border-radius: 8px; padding: 20px; margin: 20px 0;">
-            <p style="color: #4A90E2; font-size: 24px; font-weight: bold; font-family: monospace; margin: 0; letter-spacing: 2px;">${resetToken}</p>
-          </div>
+        <p style="color: #666; font-size: 16px;">You requested a password reset for your ENACT account.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <p style="color: #666; font-size: 16px;">Copy and paste this code in the app to reset your password:</p>
+          <p style="color: #4A90E2; font-size: 22px; font-family: monospace; background: #f5f5f5; padding: 14px 20px; border-radius: 5px; display: inline-block; letter-spacing: 1px;">${resetToken}</p>
         </div>
-
-        <div style="background: #f9f9f9; border-left: 4px solid #4A90E2; padding: 15px; margin: 20px 0;">
-          <p style="color: #666; font-size: 14px; margin: 0;"><strong>How to reset your password:</strong></p>
-          <ol style="color: #666; font-size: 14px; margin: 10px 0 0 0; padding-left: 20px;">
-            <li>Open the Talk Around Town app</li>
-            <li>Go to the password reset screen</li>
-            <li>Paste the code above</li>
-            <li>Enter your new password</li>
-          </ol>
-        </div>
-
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">⏱️ This code will expire in <strong>1 hour</strong>.</p>
+        <p style="color: #666; font-size: 14px;">This code will expire in 1 hour.</p>
         <p style="color: #999; font-size: 14px;">If you didn't request this, please ignore this email.</p>
         <p style="color: #999; font-size: 12px;">For security, this code will only work once.</p>
       </div>
     `;
 
-        let emailSent = false;
-        let provider = 'unknown';
+        // Create Gmail transporter
+        const transporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.GMAIL_APP_PASSWORD,
+            },
+        });
 
-        // Try SendGrid first
-        try {
-            console.log('📧 Attempting to send via SendGrid...');
-            await sgMail.send({
-                to: email,
-                from: process.env.SENDGRID_FROM,
-                subject: 'Password Reset Request',
-                html,
-            });
-            emailSent = true;
-            provider = 'SendGrid';
-            console.log('✅ Email sent via SendGrid');
-        } catch (sgError) {
-            const sgErr = sgError?.response?.body?.errors?.map(e => e.message).join('; ');
-            console.warn('⚠️  SendGrid failed:', sgErr || sgError.message);
+        await transporter.sendMail({
+            from: `"ENACT" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: 'Password Reset Request',
+            html,
+        });
 
-            // Fallback to nodemailer with Gmail
-            try {
-                console.log('📧 Attempting fallback via Gmail SMTP...');
-                await gmailTransporter.sendMail({
-                    from: process.env.SENDGRID_FROM,
-                    to: email,
-                    subject: 'Password Reset Request',
-                    html,
-                });
-                emailSent = true;
-                provider = 'Gmail SMTP';
-                console.log('✅ Email sent via Gmail SMTP (fallback)');
-            } catch (gmailError) {
-                console.error('❌ Gmail SMTP also failed:', gmailError.message);
-                throw new Error('All email providers failed');
-            }
-        }
-
-        if (emailSent) {
-            // Update rate limiter
-            resetRateLimiter.set(email, Date.now());
-
-            // Clean up old rate limit entries (older than 2 minutes)
-            for (const [key, timestamp] of resetRateLimiter.entries()) {
-                if (Date.now() - timestamp > 120000) {
-                    resetRateLimiter.delete(key);
-                }
-            }
-
-            return res.status(200).json({
-                message: 'Password reset instructions sent to email',
-                success: true,
-                provider, // Include which provider worked
-            });
-        }
-
-        throw new Error('Failed to send email');
-
+        return res.status(200).json({
+            message: 'Password reset instructions sent to email',
+            success: true,
+        });
     } catch (error) {
-        console.error('Password reset request error:', error.message);
+        console.error('Password reset request error:', error);
         return res.status(500).json({
-            message: 'Error sending password reset email. Please try again later.',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            message: 'Error processing password reset request',
+            error:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
         });
     }
 };
@@ -502,6 +524,12 @@ const resetPassword = async (req, res) => {
             'SELECT id, email, reset_token, reset_token_expires FROM users WHERE reset_token_expires > NOW()',
         );
 
+        const user = users.find(async user => {
+            if (!user.reset_token) return false;
+            return await bcrypt.compare(token, user.reset_token);
+        });
+
+        // To this:
         let foundUser = null;
         for (const user of users) {
             if (!user.reset_token) continue;
@@ -541,7 +569,6 @@ const resetPassword = async (req, res) => {
         });
     }
 };
-
 const deleteAccount = async (req, res) => {
     const userId = req.user.id; // User ID from JWT token
 
@@ -583,6 +610,7 @@ const deleteAccount = async (req, res) => {
         );
 
         // Delete tips related to this user (if applicable)
+        // Note: Adjust this if your tips table doesn't have a user_id column
         try {
             const [tipsResult] = await connection.query(
                 'DELETE FROM tips WHERE user_id = ?',
@@ -590,6 +618,7 @@ const deleteAccount = async (req, res) => {
             );
             console.log(`Deleted ${tipsResult.affectedRows} tip records`);
         } catch (error) {
+            // Skip if table doesn't exist or column doesn't exist
             console.log(
                 'No tips records deleted - table might not have user_id column',
             );
@@ -790,6 +819,7 @@ const token = async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 };
+// Add this to your auth.js or create a new route file
 
 const testEmail = async (req, res) => {
     try {
@@ -831,7 +861,6 @@ const testEmail = async (req, res) => {
         });
     }
 };
-
 // Get device tokens
 const getDeviceTokens = async (req, res) => {
     const user_id = req.user.id;
@@ -856,6 +885,28 @@ const getDeviceTokens = async (req, res) => {
     }
 };
 
+const checkEmail = async (req, res) => {
+    const { email } = req.query;
+
+    if (!email) {
+        return res.status(400).json({ error: 'Email query parameter is required' });
+    }
+    if (!validateEmail(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    try {
+        const [rows] = await pool.query(
+            'SELECT id FROM users WHERE email = ?',
+            [email],
+        );
+        return res.status(200).json({ exists: rows.length > 0 });
+    } catch (error) {
+        console.error('Check email error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
 // Routes
 router.post('/register', register);
 router.post('/login', login);
@@ -869,5 +920,6 @@ router.post('/reset-password', resetPassword);
 router.post('/test-email', testEmail);
 router.delete('/delete-account', authenticateJWT, deleteAccount);
 router.post('/change-password', authenticateJWT, changePassword);
+router.get('/check-email', checkEmail);
 
 export default router;

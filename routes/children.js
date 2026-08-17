@@ -33,32 +33,29 @@ router.get('/children', authenticateJWT, async (req, res) => {
 router.post('/children', authenticateJWT, async (req, res) => {
     const connection = await pool.getConnection();
     try {
-        const { nickname, age } = req.body;
+        const { nickname, age, date_of_birth } = req.body;
         const user_id = req.user.id;
 
-        // Validate age
-        if (!age || age < 1 || age > 5 || !Number.isInteger(age)) {
+        // Validate age (must be integer 0-5; 0 = under 1 year)
+        if (!Number.isInteger(age) || age < 0 || age > 5) {
             connection.release();
             return res.status(400).json({
                 success: false,
-                message: 'Child age must be an integer between 1 and 5',
+                message: 'Child age must be an integer between 0 and 5',
             });
         }
 
-        // Calculate date_of_birth from age
-        const today = new Date();
-        const birthYear = today.getFullYear() - age;
-        const dateOfBirth = new Date(birthYear, today.getMonth(), today.getDate());
-        const formattedDOB = dateOfBirth.toISOString().split('T')[0]; // YYYY-MM-DD
+        // Calculate date_of_birth from age if not provided
+        const dob = date_of_birth || `${new Date().getFullYear() - age}-01-01`;
 
         // Start transaction
         await connection.beginTransaction();
 
-        // Insert new child with both age and date_of_birth
+        // Insert new child
         const [result] = await connection.query(
             `INSERT INTO children (user_id, nickname, age, date_of_birth)
        VALUES (?, ?, ?, ?)`,
-            [user_id, nickname, age, formattedDOB],
+            [user_id, nickname, age, dob],
         );
 
         // Update user's number_of_children
@@ -79,10 +76,11 @@ router.post('/children', authenticateJWT, async (req, res) => {
         });
     } catch (error) {
         await connection.rollback();
-        console.error('Error adding child:', error);
+        console.error('Error adding child:', error.message, error.code, error.sqlMessage);
         return res.status(500).json({
             success: false,
             message: 'Failed to add child',
+            error: error.sqlMessage || error.message,
         });
     } finally {
         connection.release();
@@ -96,6 +94,17 @@ router.post('/updateChildren', authenticateJWT, async (req, res) => {
     try {
         const { children } = req.body;
         const user_id = req.user.id;
+
+        // Validate all age values first (must be integer 0-5; 0 = under 1 year)
+        for (const child of children) {
+            if (!Number.isInteger(child.age) || child.age < 0 || child.age > 5) {
+                connection.release();
+                return res.status(400).json({
+                    success: false,
+                    message: 'Child age must be an integer between 0 and 5',
+                });
+            }
+        }
 
         // Start transaction
         await connection.beginTransaction();
@@ -115,22 +124,15 @@ router.post('/updateChildren', authenticateJWT, async (req, res) => {
                 });
             }
 
-            // Validate age if provided
-            if (child.age && (child.age < 1 || child.age > 5 || !Number.isInteger(child.age))) {
-                await connection.rollback();
-                return res.status(400).json({
-                    success: false,
-                    message: 'Child age must be an integer between 1 and 5',
-                });
-            }
-
             // Update child information
+            const updatedDob = `${new Date().getFullYear() - child.age}-01-01`;
             await connection.query(
                 `UPDATE children
          SET nickname = ?,
-             age = ?
+             age = ?,
+             date_of_birth = ?
          WHERE id = ? AND user_id = ?`,
-                [child.nickname, child.age, child.id, user_id],
+                [child.nickname, child.age, updatedDob, child.id, user_id],
             );
         }
 
@@ -171,9 +173,6 @@ router.delete('/children/:id', authenticateJWT, async (req, res) => {
             'SELECT id FROM children WHERE id = ? AND user_id = ?',
             [childId, user_id],
         );
-
-        const data = await connection.query('SELECT * FROM children');
-        console.log(data);
 
         if (childRows.length === 0) {
             await connection.rollback();

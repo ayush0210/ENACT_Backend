@@ -2,31 +2,68 @@ name: Backend CI/CD
 
 on:
   push:
-    branches: [ main ]  # Adjust this to your main branch name
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  # ── Stage 1: Lint ─────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Code Quality
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint (fail on any warning)
+        run: npm run lint
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+  # ── Stage 2: Deploy (push to main only) ──────────────────────────────────
+  deploy:
+    name: Deploy to UF Server
+    needs: lint
+    runs-on: ubuntu-latest
+    # Only deploy on direct pushes to main, not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-    - uses: actions/checkout@v2
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # set -e: abort on any error — prevents partial deploys
+          script: |
+            set -e
+            cd ~/talk-around-town-backend
 
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '20.14'  # Adjust this to your Node.js version
+            echo ">>> Pulling latest code..."
+            git fetch origin main
+            git reset --hard origin/main
 
-    - name: Install dependencies
-      run: npm i
+            echo ">>> Installing dependencies..."
+            npm ci
 
-    - name: Deploy to Ubuntu server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd ~/talk-around-town-backend
-          git pull origin main
-          npm install
-          pm2 restart tat  # Adjust this to your app's name
+            echo ">>> Reloading app (zero-downtime graceful reload)..."
+            pm2 reload tat --update-env
+
+            echo ">>> Saving PM2 process list..."
+            pm2 save
+
+            echo ">>> Deploy complete. Status:"
+            pm2 show tat
