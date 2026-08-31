@@ -8,8 +8,12 @@ import { GoogleAuth } from 'google-auth-library';
 import personalizationService from '../services/personalizationService.js';
 import {
     buildLocationNotificationPayload,
+    buildLocationTipPrompt,
     notificationDataForPush,
 } from '../utils/locationNotificationPayload.js';
+import { getApprovedActivities } from '../utils/activityCache.js';
+import { resolveActivities } from '../utils/activityNormalization.js';
+import { parseStoredActivities } from '../utils/locationActivities.js';
 
 const require = createRequire(import.meta.url);
 const serviceAccount = require('../key.json');
@@ -46,6 +50,44 @@ function deg2rad(deg) {
     return deg * (Math.PI / 180);
 }
 
+// Converts a client-submitted description to a single consistent optional shape:
+// a trimmed non-empty string, or null. Never returns undefined (undefined would
+// crash the mysql2 query as a bind parameter) or an empty string (which the app's
+// UI already treats inconsistently — see BottomSheetLocationItem's '' === 'Home' check).
+function normalizeDescription(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+}
+
+// Validates and canonicalizes a client-submitted `activities` field for create/update.
+// Returns { activities, error } — `error` is a ready-to-send 400 body, or null on success.
+// `activities` defaults to [] when the field is omitted/null (selection is optional).
+async function resolveRequestActivities(rawActivities) {
+    if (rawActivities === undefined || rawActivities === null) {
+        return { activities: [], error: null };
+    }
+    if (!Array.isArray(rawActivities)) {
+        return {
+            activities: null,
+            error: { error: 'invalid_activities', message: 'activities must be an array of strings' },
+        };
+    }
+    const approvedActivities = await getApprovedActivities();
+    const { resolved, unresolved } = resolveActivities(rawActivities, approvedActivities);
+    if (unresolved.length > 0) {
+        return {
+            activities: null,
+            error: {
+                error: 'unapproved_activities',
+                message: 'One or more activities are not on the approved list.',
+                unresolved,
+            },
+        };
+    }
+    return { activities: resolved, error: null };
+}
+
 async function validateFCMToken(token) {
     try {
         // Attempt to send a test message with dry run option
@@ -75,11 +117,17 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
         const user_id = req.user.id;
 
         // Extract location data from the request body
-        const { latitude, longitude, type, name, description } = req.body;
+        const { latitude, longitude, type, name } = req.body;
+        const description = normalizeDescription(req.body.description);
 
         // Validate the input data
         if (!latitude || !longitude || !name) {
             return res.status(400).json({ error: 'All fields are required' });
+        }
+
+        const { activities, error: activitiesError } = await resolveRequestActivities(req.body.activities);
+        if (activitiesError) {
+            return res.status(400).json(activitiesError);
         }
 
         // Check for duplicate locations within 100m
@@ -94,10 +142,12 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
             }
         }
 
-        // Insert the new location into the database
+        // Insert the new location into the database. Store an empty activity
+        // selection as SQL NULL (not '[]') so historical rows and never-selected
+        // rows share one representation; both read back as [] via the API.
         const [result] = await pool.query(
-            'INSERT INTO locations (user_id, lat, `long`, type, name, `desc`) VALUES (?, ?, ?, ?, ?, ?)',
-            [user_id, latitude, longitude, type, name, description],
+            'INSERT INTO locations (user_id, lat, `long`, type, name, `desc`, activities) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [user_id, latitude, longitude, type, name, description, activities.length ? JSON.stringify(activities) : null],
         );
         // Check if the insertion was successful
         if (result.affectedRows === 1) {
@@ -155,6 +205,72 @@ router.delete('/deleteLocation', authenticateJWT, async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
+
+// PUT /endpoint/updateLocation
+// Updates type/name/description/activities on a location the caller owns. Coordinates
+// are intentionally not editable here — the UI has no coordinate-editing affordance, and
+// changing them would change the location's geofence identity (see geofence-sync).
+router.put('/updateLocation', authenticateJWT, async (req, res) => {
+    try {
+        const user_id = req.user.id;
+        let { id, type, name } = req.body;
+        id = parseInt(id, 10);
+
+        if (!id || isNaN(id)) {
+            return res.status(400).json({ error: 'Valid location ID is required' });
+        }
+        if (!type || !name || !String(name).trim()) {
+            return res.status(400).json({ error: 'type and name are required' });
+        }
+
+        const description = normalizeDescription(req.body.description);
+
+        const { activities, error: activitiesError } = await resolveRequestActivities(req.body.activities);
+        if (activitiesError) {
+            return res.status(400).json(activitiesError);
+        }
+
+        // Ownership is enforced in the WHERE clause itself: a mismatched user_id
+        // simply matches zero rows, so one user can never update another's location.
+        const [result] = await pool.query(
+            'UPDATE locations SET type = ?, name = ?, `desc` = ?, activities = ? WHERE id = ? AND user_id = ?',
+            [
+                type,
+                String(name).trim(),
+                description,
+                activities.length ? JSON.stringify(activities) : null,
+                id,
+                user_id,
+            ],
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Location not found or you do not have permission to update it' });
+        }
+
+        const [[row]] = await pool.query(
+            'SELECT id, name, type, `desc`, activities, lat, `long` FROM locations WHERE id = ? AND user_id = ?',
+            [id, user_id],
+        );
+
+        return res.status(200).json({
+            message: 'Location updated successfully',
+            location: {
+                id: row.id,
+                name: row.name,
+                type: row.type,
+                description: row.desc ?? null,
+                activities: parseStoredActivities(row.activities),
+                latitude: parseFloat(row.lat),
+                longitude: parseFloat(row.long),
+            },
+        });
+    } catch (error) {
+        console.error('Error updating location:', error);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
 router.post('/tips', authenticateJWT, async (req, res) => {
     // get tips from db
     // first get userid from req.user
@@ -215,7 +331,9 @@ router.post('/locations', authenticateJWT, async (req, res) => {
 const details = rows.map(row => ({
         id: row.id,
         title: row.name,
-        description: row.desc,
+        type: row.type,
+        description: row.desc ?? null,
+        activities: parseStoredActivities(row.activities),
         pinColor: getRandomColor(),
     }));
     // Send the transformed data as a JSON response
@@ -327,6 +445,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             longitude: parseFloat(row.long),
             name: row.name,
             type: row.type,
+            activities: parseStoredActivities(row.activities),
         }));
 
         // Find nearby location
@@ -451,9 +570,12 @@ router.post('/', authenticateJWT, async (req, res) => {
         const domainDesc = contentPreferences.length
             ? contentPreferences.join(' and ')
             : 'language development, literacy, science exploration, and social-emotional learning';
-        const prompt = childContext
-            ? `${domainDesc} activities at ${nearbyLocation.name} for children (${childContext})`
-            : `${domainDesc} activities at ${nearbyLocation.name}`;
+        const prompt = buildLocationTipPrompt({
+            domainDesc,
+            locationName: nearbyLocation.name,
+            activities: nearbyLocation.activities,
+            childContext,
+        });
 
         // Get personalized tips using the same service as the parenting assistant
         let tips = [];

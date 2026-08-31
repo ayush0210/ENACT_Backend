@@ -52,6 +52,24 @@ export function buildLocationNotificationPayload({ location, tips = [], notifica
     };
 }
 
+// Shared by the legacy JS-polling path (routes/location.js) and the native geofence
+// path (routes/geofence.js) so both produce identical tip-generation prompts for the
+// same location. When `activities` is empty this returns exactly the prompt string
+// both routes used before activities existed — no behavior change for locations
+// without selected activities.
+export function buildLocationTipPrompt({
+    domainDesc,
+    locationName,
+    activities = [],
+    childContext = '',
+}) {
+    const activitiesClause = activities.length
+        ? ` The family especially wants ideas for these activities they do there: ${activities.join(', ')}.`
+        : '';
+    const base = `${domainDesc} activities at ${locationName}${activitiesClause}`;
+    return childContext ? `${base} for children (${childContext})` : base;
+}
+
 export function notificationDataForPush(payload) {
     return {
         notificationType: payload.notificationType,

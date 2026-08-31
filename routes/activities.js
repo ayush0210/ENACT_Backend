@@ -4,6 +4,7 @@ import pool from '../config/db.js';
 import { authenticateJWT } from './middleware.js';
 import { SUPPORTED_ACTIVITIES } from '../utils/supportedActivities.js';
 import { getApprovedActivities } from '../utils/activityCache.js';
+import { resolveActivity } from '../utils/activityNormalization.js';
 
 const router = express.Router();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -38,9 +39,11 @@ router.post('/suggest', authenticateJWT, async (req, res) => {
 
   const normalized = name.trim();
 
-  const alreadySupported = SUPPORTED_ACTIVITIES.some(
-    a => a.toLowerCase() === normalized.toLowerCase(),
-  );
+  // Resolve against the full approved list (built-ins + admin-approved custom
+  // activities), using the same alias-aware normalization used at location
+  // save time, so e.g. "Bed-Time" is recognized as already-supported "Bed time".
+  const approvedActivities = await getApprovedActivities();
+  const alreadySupported = Boolean(resolveActivity(normalized, approvedActivities));
   if (alreadySupported) {
     return res.status(409).json({ error: 'already_supported', message: 'This activity is already on the supported list.' });
   }

@@ -11,7 +11,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:recordings": "node --test tests/recordingAnalysisService.test.js"
+    "test:recordings": "node --test tests/recordingAnalysisService.test.js",
+    "test:location-activities": "node --test tests/activityNormalization.test.js tests/locationActivities.test.js tests/locationNotificationPayload.test.js"
   },
   "engines": {
     "node": ">=20"

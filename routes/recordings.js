@@ -175,17 +175,11 @@ router.post('/', authenticateJWT, upload.single('audio'), async (req, res) => {
             return res.status(400).json({ error: 'Invalid recordedAt value' });
         }
 
-        const [users] = await pool.query(
-            'SELECT recording FROM users WHERE id = ?',
-            [userId],
-        );
+        const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [
+            userId,
+        ]);
         if (!users.length)
             return res.status(401).json({ error: 'User not found' });
-        if (!Boolean(users[0].recording)) {
-            return res
-                .status(403)
-                .json({ error: 'Recording is not enabled for this account' });
-        }
         const [children] = await pool.query(
             'SELECT id FROM children WHERE id = ? AND user_id = ?',
             [childId, userId],

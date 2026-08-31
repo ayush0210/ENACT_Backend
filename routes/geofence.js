@@ -2,7 +2,11 @@ import express from 'express';
 import pool from '../config/db.js';
 import { authenticateJWT } from './middleware.js';
 import personalizationService from '../services/personalizationService.js';
-import { buildLocationNotificationPayload } from '../utils/locationNotificationPayload.js';
+import {
+    buildLocationNotificationPayload,
+    buildLocationTipPrompt,
+} from '../utils/locationNotificationPayload.js';
+import { parseStoredActivities } from '../utils/locationActivities.js';
 
 const router = express.Router();
 
@@ -52,12 +56,13 @@ router.post('/geofence-enter', authenticateJWT, async (req, res) => {
     try {
         // Verify the location belongs to this user
         const [[location]] = await pool.query(
-            'SELECT id, name, type FROM locations WHERE id = ? AND user_id = ?',
+            'SELECT id, name, type, activities FROM locations WHERE id = ? AND user_id = ?',
             [locationId, userId]
         );
         if (!location) {
             return res.status(404).json({ error: 'Location not found or does not belong to user' });
         }
+        const locationActivities = parseStoredActivities(location.activities);
 
         lockName = `location-notification:${userId}:${location.id}`;
         const [[lockRow]] = await pool.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
@@ -104,9 +109,12 @@ router.post('/geofence-enter', authenticateJWT, async (req, res) => {
         const domainDesc = contentPreferences.length
             ? contentPreferences.join(' and ')
             : 'language development, literacy, science, and social-emotional learning';
-        const prompt = childContext
-            ? `${domainDesc} activities at ${location.name} for children (${childContext})`
-            : `${domainDesc} activities at ${location.name}`;
+        const prompt = buildLocationTipPrompt({
+            domainDesc,
+            locationName: location.name,
+            activities: locationActivities,
+            childContext,
+        });
 
         // Generate personalised tips — same service as the rest of the app
         let tips = [];
