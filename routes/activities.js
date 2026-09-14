@@ -4,7 +4,8 @@ import pool from '../config/db.js';
 import { authenticateJWT } from './middleware.js';
 import { SUPPORTED_ACTIVITIES } from '../utils/supportedActivities.js';
 import { getApprovedActivities } from '../utils/activityCache.js';
-import { resolveActivity } from '../utils/activityNormalization.js';
+import { resolveActivity, resolveActivities } from '../utils/activityNormalization.js';
+import personalizationService from '../services/personalizationService.js';
 
 const router = express.Router();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -120,6 +121,91 @@ Respond ONLY with valid JSON: { "valid": true/false, "domains": ["category1", ..
     activity: normalized,
     domains,
   });
+});
+
+// POST /api/activities/tips
+//
+// Generates parenting tips grounded in a set of selected activities, with no
+// location involved. Used by the reminder feature: when a user schedules a
+// day/time reminder with activities attached, the app calls this once (at save
+// time) and bakes the resulting title/body into the locally-scheduled repeating
+// notification — so the reminder always shows a real, activity-grounded tip
+// instead of generic "open the app" text, without needing a server-side
+// scheduler. Activities are validated against the same approved list used
+// everywhere else, so this never sends unvetted free text into the AI prompt.
+router.post('/tips', authenticateJWT, async (req, res) => {
+  const userId = req.user.id;
+  const rawActivities = req.body.activities;
+
+  if (!Array.isArray(rawActivities) || rawActivities.length === 0) {
+    return res.status(400).json({ error: 'activities must be a non-empty array of strings' });
+  }
+
+  const approvedActivities = await getApprovedActivities();
+  const { resolved, unresolved } = resolveActivities(rawActivities, approvedActivities);
+  if (unresolved.length > 0) {
+    return res.status(400).json({
+      error: 'unapproved_activities',
+      message: 'One or more activities are not on the approved list.',
+      unresolved,
+    });
+  }
+
+  const contentPreferences = Array.isArray(req.body.contentPreferences)
+    ? req.body.contentPreferences
+    : [];
+
+  let childContext = '';
+  try {
+    const [kids] = await pool.query('SELECT nickname, age FROM children WHERE user_id = ?', [userId]);
+    childContext = kids
+      .map(c => {
+        const a = c.age === 0 ? 'under 1 year' : `${c.age} year${c.age === 1 ? '' : 's'}`;
+        return c.nickname ? `${c.nickname}: ${a} old` : `${a} old`;
+      })
+      .join(', ');
+  } catch (_) {}
+
+  const domainDesc = contentPreferences.length
+    ? contentPreferences.join(' and ')
+    : 'language development, literacy, science exploration, and social-emotional learning';
+  const query = childContext
+    ? `${domainDesc} ideas for ${resolved.join(', ')} for children (${childContext})`
+    : `${domainDesc} ideas for ${resolved.join(', ')}`;
+
+  let tips = [];
+  try {
+    const result = await personalizationService.generatePersonalizedTipsForQuery(
+      userId,
+      query,
+      3,
+      contentPreferences,
+    );
+    tips = Array.isArray(result) ? result : (result.tips || []);
+    if (!tips.length) throw new Error('empty result');
+  } catch (err) {
+    console.log('Reminder tip generation failed, falling back to popular tips:', err.message);
+    try {
+      tips = await personalizationService.getPopularTips(3);
+    } catch (fallbackErr) {
+      console.error('Popular-tips fallback also failed:', fallbackErr.message);
+      tips = [];
+    }
+  }
+
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const normalized = tips.slice(0, 3).map(t => ({
+    title: clean(t.title || 'Parenting tip'),
+    body: clean(t.body || t.description || ''),
+  }));
+
+  const title = 'Time for your ENACT activities!';
+  const bodyLines = normalized
+    .map((t, i) => (t.body ? `${i + 1}. ${t.title}: ${t.body}` : `${i + 1}. ${t.title}`))
+    .filter(Boolean);
+  const body = bodyLines.length ? bodyLines.join('\n') : `Tips for ${resolved.join(', ')}`;
+
+  return res.status(200).json({ tips: normalized, title, body });
 });
 
 export default router;

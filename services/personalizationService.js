@@ -823,11 +823,13 @@ class PersonalizationService {
                                 - Frame each tip as a ${selectedDomains.length ? selectedDomains.join(' / ') : 'developmental'} activity for the scenario above
                                 - DO NOT give advice on discipline, sleep, eating, potty training, screen time, medical, logistics, or legal topics
                                 - Be specific, actionable, age-appropriate (0–5 years)
+                                - Every tip MUST take under 5 minutes to do
+                                - Every tip MUST require no special materials — only things the family already has on hand, or nothing at all
                                 - Keep outputs concise
 
                                 Return ONLY a JSON array like:
                                 [
-                                    {"id":1,"title":"≤50 chars","body":"2 short sentences.","details":"1 short sentence.","categories":["one_of_the_4_domains"]}
+                                    {"id":1,"title":"≤50 chars","body":"2 short sentences.","details":"one concrete example of how to do this tip in the moment (e.g. an exact phrase to say, or the specific first step).","categories":["one_of_the_4_domains"]}
                                 ]`;
 
                 if (selectedDomains.length) {
@@ -858,6 +860,8 @@ ABSOLUTE RULES — NO EXCEPTIONS:
 - If the user query is about ANYTHING outside these 4 domains, output an empty array: []
 - NEVER generate tips about: discipline, punishment, behavior management, sleep, bedtime, eating, nutrition, potty training, screen time, medical topics, legal topics, travel, homework help, or any adult topics
 - NEVER generate tips about drugs, violence, weapons, or illegal activity
+- EVERY tip MUST take under 5 minutes and require NO special materials — only things already on hand, or nothing at all
+- EVERY tip's "details" field MUST be a concrete example of implementation (exact words to say, or the specific first step), never a generic explanation
 - If you are unsure whether a topic fits, output []
 - Only output valid JSON (array). No explanation text, no markdown.`,
                             },
@@ -1754,13 +1758,16 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         let userMsg = `Generate exactly 3 parenting tips that apply the selected domain(s) to this specific scenario: "${query}".
       ${domainContext}.
       Output as NDJSON — one JSON object per line:
-      {"title":"≤50 chars","body":"2 short sentences","details":"1 short sentence","categories":["one_of:${outputDomains.join('|')}"]}
+      {"title":"≤50 chars","body":"2 short sentences","details":"one concrete example of how to do this tip in the moment (e.g. an exact phrase to say, or the specific first step)","categories":["one_of:${outputDomains.join('|')}"]}
 
       Rules:
       - Every tip MUST be in one of these domains: ${outputDomains.join(', ')}.
       - Frame each tip so it is clearly about ${selectedDomains.length ? selectedDomains.join(' or ') : 'the allowed domain'} applied to the scenario.
       - No medical, sleep, eating, potty, discipline, legal, logistics, or screen-time advice.
       - Age-appropriate (0–5 years), specific, actionable.
+      - Every tip MUST take under 5 minutes to do.
+      - Every tip MUST require no special materials — only things the family already has on hand, or nothing at all.
+      - "details" MUST be a concrete example of implementation, not a generic explanation — e.g. the exact words to say, or the specific action to take first.
       - No markdown, no arrays, no extra text — ONLY JSON objects, one per line.
       ${pinLine}`;
 

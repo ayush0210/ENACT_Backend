@@ -6,7 +6,6 @@ import {
     buildLocationNotificationPayload,
     buildLocationTipPrompt,
 } from '../utils/locationNotificationPayload.js';
-import { parseStoredActivities } from '../utils/locationActivities.js';
 
 const router = express.Router();
 
@@ -56,13 +55,12 @@ router.post('/geofence-enter', authenticateJWT, async (req, res) => {
     try {
         // Verify the location belongs to this user
         const [[location]] = await pool.query(
-            'SELECT id, name, type, activities FROM locations WHERE id = ? AND user_id = ?',
+            'SELECT id, name, type FROM locations WHERE id = ? AND user_id = ?',
             [locationId, userId]
         );
         if (!location) {
             return res.status(404).json({ error: 'Location not found or does not belong to user' });
         }
-        const locationActivities = parseStoredActivities(location.activities);
 
         lockName = `location-notification:${userId}:${location.id}`;
         const [[lockRow]] = await pool.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
@@ -112,7 +110,6 @@ router.post('/geofence-enter', authenticateJWT, async (req, res) => {
         const prompt = buildLocationTipPrompt({
             domainDesc,
             locationName: location.name,
-            activities: locationActivities,
             childContext,
         });
 

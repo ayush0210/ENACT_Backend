@@ -11,9 +11,6 @@ import {
     buildLocationTipPrompt,
     notificationDataForPush,
 } from '../utils/locationNotificationPayload.js';
-import { getApprovedActivities } from '../utils/activityCache.js';
-import { resolveActivities } from '../utils/activityNormalization.js';
-import { parseStoredActivities } from '../utils/locationActivities.js';
 
 const require = createRequire(import.meta.url);
 const serviceAccount = require('../key.json');
@@ -60,34 +57,6 @@ function normalizeDescription(value) {
     return trimmed.length ? trimmed : null;
 }
 
-// Validates and canonicalizes a client-submitted `activities` field for create/update.
-// Returns { activities, error } — `error` is a ready-to-send 400 body, or null on success.
-// `activities` defaults to [] when the field is omitted/null (selection is optional).
-async function resolveRequestActivities(rawActivities) {
-    if (rawActivities === undefined || rawActivities === null) {
-        return { activities: [], error: null };
-    }
-    if (!Array.isArray(rawActivities)) {
-        return {
-            activities: null,
-            error: { error: 'invalid_activities', message: 'activities must be an array of strings' },
-        };
-    }
-    const approvedActivities = await getApprovedActivities();
-    const { resolved, unresolved } = resolveActivities(rawActivities, approvedActivities);
-    if (unresolved.length > 0) {
-        return {
-            activities: null,
-            error: {
-                error: 'unapproved_activities',
-                message: 'One or more activities are not on the approved list.',
-                unresolved,
-            },
-        };
-    }
-    return { activities: resolved, error: null };
-}
-
 async function validateFCMToken(token) {
     try {
         // Attempt to send a test message with dry run option
@@ -125,11 +94,6 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
             return res.status(400).json({ error: 'All fields are required' });
         }
 
-        const { activities, error: activitiesError } = await resolveRequestActivities(req.body.activities);
-        if (activitiesError) {
-            return res.status(400).json(activitiesError);
-        }
-
         // Check for duplicate locations within 100m
         const [existing] = await pool.query(
             'SELECT lat, `long` FROM locations WHERE user_id = ?',
@@ -142,12 +106,10 @@ router.post('/addLocation', authenticateJWT, async (req, res) => {
             }
         }
 
-        // Insert the new location into the database. Store an empty activity
-        // selection as SQL NULL (not '[]') so historical rows and never-selected
-        // rows share one representation; both read back as [] via the API.
+        // Insert the new location into the database
         const [result] = await pool.query(
-            'INSERT INTO locations (user_id, lat, `long`, type, name, `desc`, activities) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [user_id, latitude, longitude, type, name, description, activities.length ? JSON.stringify(activities) : null],
+            'INSERT INTO locations (user_id, lat, `long`, type, name, `desc`) VALUES (?, ?, ?, ?, ?, ?)',
+            [user_id, latitude, longitude, type, name, description],
         );
         // Check if the insertion was successful
         if (result.affectedRows === 1) {
@@ -207,9 +169,9 @@ router.delete('/deleteLocation', authenticateJWT, async (req, res) => {
 });
 
 // PUT /endpoint/updateLocation
-// Updates type/name/description/activities on a location the caller owns. Coordinates
-// are intentionally not editable here — the UI has no coordinate-editing affordance, and
-// changing them would change the location's geofence identity (see geofence-sync).
+// Updates type/name/description on a location the caller owns. Coordinates are
+// intentionally not editable here — the UI has no coordinate-editing affordance,
+// and changing them would change the location's geofence identity (see geofence-sync).
 router.put('/updateLocation', authenticateJWT, async (req, res) => {
     try {
         const user_id = req.user.id;
@@ -225,23 +187,11 @@ router.put('/updateLocation', authenticateJWT, async (req, res) => {
 
         const description = normalizeDescription(req.body.description);
 
-        const { activities, error: activitiesError } = await resolveRequestActivities(req.body.activities);
-        if (activitiesError) {
-            return res.status(400).json(activitiesError);
-        }
-
         // Ownership is enforced in the WHERE clause itself: a mismatched user_id
         // simply matches zero rows, so one user can never update another's location.
         const [result] = await pool.query(
-            'UPDATE locations SET type = ?, name = ?, `desc` = ?, activities = ? WHERE id = ? AND user_id = ?',
-            [
-                type,
-                String(name).trim(),
-                description,
-                activities.length ? JSON.stringify(activities) : null,
-                id,
-                user_id,
-            ],
+            'UPDATE locations SET type = ?, name = ?, `desc` = ? WHERE id = ? AND user_id = ?',
+            [type, String(name).trim(), description, id, user_id],
         );
 
         if (result.affectedRows === 0) {
@@ -249,7 +199,7 @@ router.put('/updateLocation', authenticateJWT, async (req, res) => {
         }
 
         const [[row]] = await pool.query(
-            'SELECT id, name, type, `desc`, activities, lat, `long` FROM locations WHERE id = ? AND user_id = ?',
+            'SELECT id, name, type, `desc`, lat, `long` FROM locations WHERE id = ? AND user_id = ?',
             [id, user_id],
         );
 
@@ -260,7 +210,6 @@ router.put('/updateLocation', authenticateJWT, async (req, res) => {
                 name: row.name,
                 type: row.type,
                 description: row.desc ?? null,
-                activities: parseStoredActivities(row.activities),
                 latitude: parseFloat(row.lat),
                 longitude: parseFloat(row.long),
             },
@@ -333,7 +282,6 @@ const details = rows.map(row => ({
         title: row.name,
         type: row.type,
         description: row.desc ?? null,
-        activities: parseStoredActivities(row.activities),
         pinColor: getRandomColor(),
     }));
     // Send the transformed data as a JSON response
@@ -445,7 +393,6 @@ router.post('/', authenticateJWT, async (req, res) => {
             longitude: parseFloat(row.long),
             name: row.name,
             type: row.type,
-            activities: parseStoredActivities(row.activities),
         }));
 
         // Find nearby location
@@ -573,7 +520,6 @@ router.post('/', authenticateJWT, async (req, res) => {
         const prompt = buildLocationTipPrompt({
             domainDesc,
             locationName: nearbyLocation.name,
-            activities: nearbyLocation.activities,
             childContext,
         });
 
