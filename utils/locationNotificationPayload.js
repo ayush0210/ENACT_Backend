@@ -2,18 +2,19 @@ const MAX_TIPS = 3;
 
 const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
+// Matches the tip shape produced by the in-app "Ask your Companion" chat flow
+// (personalizationService.generateTipsStreamNDJSON's emitLine) so a tip looks
+// identical whether it arrived via a location notification or via chat.
 const normalizeTip = tip => {
     const title = clean(tip.title || 'Parenting tip');
-    const description = clean(tip.body || tip.description || '');
+    const body = clean(tip.body || tip.description || '');
     const details = clean(tip.details || '');
     return {
         id: tip.id,
         title,
-        body: description,
-        description,
+        body,
         details,
-        activity: clean(tip.activity || tip.type || ''),
-        reason: clean(tip.reason || tip.recommendationReason || ''),
+        audioUrl: null,
         categories: Array.isArray(tip.categories) ? tip.categories : [],
         isGenerated: Boolean(tip.isGenerated),
     };
@@ -27,7 +28,7 @@ export function buildLocationNotificationPayload({ location, tips = [], notifica
     const title = `You've arrived at ${locationName}`;
     const tipLines = normalizedTips
         .map((tip, index) => {
-            const text = tip.description || tip.details;
+            const text = tip.body || tip.details;
             return text ? `${index + 1}. ${tip.title}: ${text}` : `${index + 1}. ${tip.title}`;
         })
         .filter(Boolean);
