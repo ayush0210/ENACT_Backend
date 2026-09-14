@@ -178,7 +178,7 @@ router.post('/enhanced-tips', authenticateJWT, async (req, res) => {
         // Strict 4-domain validation: Language Development, Early Science Skills,
         // Literacy Foundations, Social-Emotional Learning — nothing else.
         const approvedActivities = await getApprovedActivities();
-        const v = isStrictlyInScope(prompt, approvedActivities);
+        const v = await isStrictlyInScope(prompt, approvedActivities);
         if (!v.isValid) {
             return res.status(400).json({
                 error: 'out_of_scope',
@@ -326,7 +326,7 @@ router.post('/generate-tips', authenticateJWT, async (req, res) => {
         // Strict 4-domain validation: Language Development, Early Science Skills,
         // Literacy Foundations, Social-Emotional Learning — nothing else.
         const approvedActivities = await getApprovedActivities();
-        const v = isStrictlyInScope(prompt, approvedActivities);
+        const v = await isStrictlyInScope(prompt, approvedActivities);
         if (!v.isValid) {
             return res.status(400).json({
                 error: 'out_of_scope',
@@ -685,7 +685,7 @@ router.post('/enhanced-tips-survey', authenticateJWT, async (req, res) => {
         // Strict 4-domain validation: Language Development, Early Science Skills,
         // Literacy Foundations, Social-Emotional Learning — nothing else.
         const approvedActivities = await getApprovedActivities();
-        const v = isStrictlyInScope(prompt, approvedActivities);
+        const v = await isStrictlyInScope(prompt, approvedActivities);
         if (!v.isValid) {
             return res.status(400).json({
                 error: 'out_of_scope',
