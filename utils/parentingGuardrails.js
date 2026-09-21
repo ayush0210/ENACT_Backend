@@ -1,7 +1,10 @@
 // --- Patterns -------------
 const DANGEROUS_PATTERNS = [
-    // Violence / illegal
-    /\b(beat|kill|murder|harm|poison|assault|stab|shoot|buy\s*gun|make\s*bomb|arson|break\s?in|burglary|steal|kidnap|abduct|stalk)\b/i,
+    // Violence / illegal. beat(en|ing|s)? — NOT just "beat" — so inflected/
+    // passive-voice forms ("gets beaten", "beating") aren't missed by the
+    // \b...\b word boundary (a real gap found via personalization survey
+    // input: "When he gets beaten" previously passed every check).
+    /\b(beat(en|ing|s)?|kill|murder|harm|poison|assault|stab|shoot|buy\s*gun|make\s*bomb|arson|break\s?in|burglary|steal|kidnap|abduct|stalk)\b/i,
     // Self-harm
     /\b(suicide|self[-\s]?harm|self[-\s]?injur(y|e)|kill myself|end my life|cutting)\b/i,
     // Adult sexual content
@@ -25,13 +28,26 @@ const CONTACT_DOXXING = [
 const PROFANITY_HARASSMENT_HATE = [
     /\b(fuck|shit|bitch|asshole|bastard)\b/i,
     /\b(kill yourself|kys|die)\b/i,
-    // add any specific slurs your policy team flags
+    // Minimal, non-exhaustive ableist-slur guard — found via personalization
+    // survey input testing (a disability-related slur passed every existing
+    // check when submitted as a "support need"). This is NOT a substitute
+    // for a real moderation word list/service; it only covers the specific
+    // gap that was evidenced. Extend deliberately, with evidence, not
+    // speculatively — see docs/child-personalization.md.
+    /\b(retard(ed|s)?|r[e3]t[a4]rd)\b/i,
 ];
 
 const FINANCE =
     /\b(stocks?|crypto|bitcoin|ether(eum)?|nft|portfolio|dividends?|options?|short(ing)?|forex|trading|invest(ing|ment))\b/i;
+// NOT used as a standalone trigger below (confirmed false positive: "Hold up
+// the book" alone matched \bhold\b and was classified as finance_investing,
+// with no finance-topic word present at all). Every word here — hold, call,
+// put, buy, sell, short — is also an ordinary verb that appears constantly in
+// safe parenting-tip text. Kept declared, unused, in case a future policy
+// wants it recombined as an AND with FINANCE rather than removed outright.
 const FINANCIAL_ACTION =
     /\b(buy|sell|hold|short|leverage|call|put|strike|stop[-\s]?loss)\b/i;
+void FINANCIAL_ACTION; // eslint: intentionally unused for now — see comment above
 
 const POLITICS =
     /\b(election|vote|president|senate|congress|policy|democrat|republican|left|right|liberal|conservative)\b/i;
@@ -40,13 +56,21 @@ const GAMBLING =
 const CAREER =
     /\b(resume|cv|cover letter|interview|job|salary|promotion|manager|career|recruit(er|ing))\b/i;
 
+// NOTE: "it" was previously a bare alternative here (`...|software|it|api|...`).
+// Since "it" is one of the most common words in English, that matched almost
+// any sentence containing it — e.g. "talk about it with your child" — and,
+// once this function started being reused to gate GENERATED TIP OUTPUT (not
+// just user queries), it was rejecting the large majority of ordinary safe
+// tips as "software_it". Confirmed by direct reproduction (3/3 ordinary tip
+// sentences falsely flagged); not a hypothetical. Removed ONLY "it" — every
+// other keyword here is unchanged and still evidence-free to touch.
 const SOFTWARE_IT =
-    /\b(algorithm|code|coding|program|software|it|api|bug|deploy|container|kubernetes|docker)\b/i;
+    /\b(algorithm|code|coding|program(ming|mer)?|software|api|bug|deploy|container|kubernetes|docker)\b/i;
 const EXPLOIT_ILLEGAL =
     /\b(hack(ing)?|exploit|sql injection|ddos|malware|shellcode|rootkit|zero[-\s]?day)\b/i;
 
 const VIOLENCE_WEAPONS =
-    /\b(kill|murder|stab|shoot|bomb|grenade|gun|pistol|rifle|ammo|arson|beat)\b/i;
+    /\b(kill|murder|stab|shoot|bomb|grenade|gun|pistol|rifle|ammo|arson|beat(en|ing|s)?)\b/i;
 const DRUGS =
     /\b(heroin|cocaine|meth|mdma|lsd|fentanyl|opioid|weed|marijuana|vape|alcohol|vodka|whiskey|beer)\b/i;
 
@@ -491,7 +515,6 @@ export function classifyParentingQuery(prompt) {
     }
     if (
         FINANCE.test(q) ||
-        FINANCIAL_ACTION.test(q) ||
         matchesLooseAny(q, [
             'crypto',
             'bitcoin',
@@ -630,7 +653,6 @@ export function classifyUnsafeContent(text) {
     }
     if (
         FINANCE.test(q) ||
-        FINANCIAL_ACTION.test(q) ||
         matchesLooseAny(q, ['crypto', 'bitcoin', 'ethereum', 'stock', 'forex', 'option', 'trading', 'invest'])
     ) {
         return { ok: false, category: 'finance_investing' };

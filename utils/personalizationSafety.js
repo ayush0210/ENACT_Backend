@@ -61,6 +61,15 @@ const ABUSIVE_DISCIPLINE_PATTERNS = [
     /\b(lock(ing)?|cage|confine)\s+(him|her|them|my child|the child)\b/i,
 ];
 
+// Policy decision (see scenario 14 in the personalization regression report):
+// bare "fighting"/"fight" as a favorite/skill has no legitimate developmental
+// framing for a 0–5 profile (unlike e.g. "sibling conflict" or "sharing,"
+// which are already covered by the existing skill/favorite option lists) and
+// risks normalizing violence in generated content. Rejected outright rather
+// than saved-then-silently-dropped later — there is no review/clarification
+// UI to route it to today.
+const COMBAT_TERM_PATTERN = /\bfight(ing|s)?\b/i;
+
 // The shared guardrail's classifyUnsafeContent buckets drugs together with
 // violence/weapons/hacking under one broad "illegal_activity" category (see
 // DANGEROUS_PATTERNS in parentingGuardrails.js) — accurate there, since that
@@ -184,6 +193,12 @@ export function validateAndNormalizePersonalizationInput({ category, value, chil
         return { status: 'rejected', reasonCode: 'violence_or_abuse' };
     }
 
+    // Survey-specific: bare combat/fighting terms (see COMBAT_TERM_PATTERN
+    // comment for the policy reasoning).
+    if (COMBAT_TERM_PATTERN.test(normalized)) {
+        return { status: 'rejected', reasonCode: 'violence_or_abuse' };
+    }
+
     // 7. Shared Parenting Companion scope/safety check (reused, not
     //    reimplemented — see utils/parentingGuardrails.js#classifyUnsafeContent).
     const shared = classifyUnsafeContent(normalized);
@@ -223,4 +238,32 @@ export function validateAndNormalizePersonalizationInput({ category, value, chil
 
 export function getNeutralRejectionMessage() {
     return NEUTRAL_REJECTION_MESSAGE;
+}
+
+/**
+ * Re-validates a stored array of custom text values against TODAY's rules,
+ * dropping anything that no longer passes. Used both at write time
+ * (defense in depth — nothing new should ever fail this immediately after
+ * validateAndNormalizePersonalizationInput approved it) and, more
+ * importantly, at READ time by services/personalizationService.js's
+ * getChildPersonalizationContext, so a LEGACY row saved under an earlier,
+ * looser ruleset can never reach retrieval/ranking/prompt generation just
+ * because it was approved once in the past. Pure — no I/O, fully testable
+ * without a database.
+ *
+ * @param {string[]} values
+ * @param {'favorite'|'skill'|'support'} category
+ * @param {number} childAge
+ * @returns {string[]}
+ */
+export function filterApprovedCustomText(values, category, childAge) {
+    if (!Array.isArray(values)) return [];
+    return values.filter(value => {
+        const result = validateAndNormalizePersonalizationInput({
+            category,
+            value,
+            childAge,
+        });
+        return result.status === 'approved';
+    });
 }

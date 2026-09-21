@@ -272,3 +272,107 @@ test('rejecting a custom field never persists a row containing the rejected text
 
     assert.equal(pool._state.profiles.length, 0);
 });
+
+// --- Scenario 11: safe predefined values persist correctly ---
+test('scenario 11: safe predefined values (Animals, Using a spoon, AAC device) persist together', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    const result = await service.saveProfile({
+        userId: 10,
+        childId: 1, // age 3
+        payload: {
+            favorites: ['fav-animals'],
+            skillsInProgress: ['skill-speaking-in-sentences'], // age-3 valid skill
+            supportNeeds: ['support-aac-device'],
+        },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.profile.favorites, ['fav-animals']);
+    assert.deepEqual(result.profile.skillsInProgress, ['skill-speaking-in-sentences']);
+    assert.deepEqual(result.profile.supportNeeds, ['support-aac-device']);
+});
+
+// --- Scenario 12: safe custom interest persists ---
+test('scenario 12: a safe custom interest ("Toy trains") is normalized, approved, and persisted', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    const result = await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: { favorites: [], skillsInProgress: [], supportNeeds: [], customFavorites: ['  Toy   trains  '] },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.profile.customFavorites, ['Toy trains']);
+});
+
+// --- Scenario 19: mixed safe + unsafe values in one request ---
+test('scenario 19: a mixed safe+unsafe submission is rejected atomically — no partial save', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    const result = await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: {
+            favorites: ['fav-animals'], // safe canonical selection
+            skillsInProgress: [],
+            supportNeeds: [],
+            customSkills: ['Fighting'], // unsafe custom text
+        },
+    });
+
+    // Documented behavior: this API is ATOMIC, not partial-success. A single
+    // unsafe field rejects the entire request — the safe `fav-animals`
+    // selection in the SAME request is not saved either.
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 422);
+    assert.equal(pool._state.profiles.length, 0);
+});
+
+// --- Scenario 7 (Bug 2 requirement): completion state stays consistent when
+// every submitted value is rejected ---
+test('scenario 7: an all-rejected submission leaves any PRE-EXISTING profile completely unchanged', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    const first = await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: { favorites: ['fav-animals'], skillsInProgress: [], supportNeeds: [] },
+    });
+    assert.equal(first.ok, true);
+
+    const rejected = await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: {
+            favorites: [],
+            skillsInProgress: [],
+            supportNeeds: [],
+            customFavorites: ['When he gets beaten'],
+        },
+    });
+    assert.equal(rejected.ok, false);
+
+    const reloaded = await service.getProfile({ userId: 10, childId: 1 });
+    assert.deepEqual(reloaded.profile.favorites, ['fav-animals']);
+    assert.equal(reloaded.profile.lastReviewedAt, first.profile.lastReviewedAt);
+});
+
+// --- Regression: every child-scoped call in this service confirms ownership ---
+test('regression: confirmCurrent also enforces child ownership', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: { favorites: ['fav-animals'], skillsInProgress: [], supportNeeds: [] },
+    });
+
+    const result = await service.confirmCurrent({ userId: 999, childId: 1 });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 403);
+});

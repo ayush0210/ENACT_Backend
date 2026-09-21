@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { getCached, setCached, purge } from '../utils/emb-cache.js';
 import { getOptionById, optionsToPromptValues } from '../utils/personalizationOptions.js';
 import { blendPersonalization, computeSurveyPersonalizationScore } from '../utils/personalizationScoring.js';
+import { filterApprovedCustomText } from '../utils/personalizationSafety.js';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -260,9 +261,26 @@ class PersonalizationService {
             const skillIds = parseArr(row.skill_ids).filter(ageFilter);
             const supportNeedIds = parseArr(row.support_need_ids); // not age-scoped
 
-            const customFavorites = parseArr(row.custom_favorites);
-            const customSkills = parseArr(row.custom_skills);
-            const customSupportNeeds = parseArr(row.custom_support_needs);
+            // Defense in depth against LEGACY stored custom text that passed
+            // an earlier, looser version of the safety pipeline (or would
+            // fail it after a rule tightens in the future): re-validate on
+            // every READ, not just at save time. Never trust "it was already
+            // approved once" — approval only holds under the rules in force
+            // when it was checked. Anything that no longer passes is dropped
+            // silently from generation context; it is NOT deleted from the
+            // row here (that's a caregiver action via the survey UI, not an
+            // automatic one), so the client can still show/replace it.
+            const rawCustomFavorites = parseArr(row.custom_favorites);
+            const rawCustomSkills = parseArr(row.custom_skills);
+            const rawCustomSupportNeeds = parseArr(row.custom_support_needs);
+            const effectiveAge = childAge ?? 0;
+            const customFavorites = filterApprovedCustomText(rawCustomFavorites, 'favorite', effectiveAge);
+            const customSkills = filterApprovedCustomText(rawCustomSkills, 'skill', effectiveAge);
+            const customSupportNeeds = filterApprovedCustomText(rawCustomSupportNeeds, 'support', effectiveAge);
+            const filteredUnsafeCount =
+                rawCustomFavorites.length - customFavorites.length +
+                (rawCustomSkills.length - customSkills.length) +
+                (rawCustomSupportNeeds.length - customSupportNeeds.length);
 
             const hasAnything =
                 favoriteIds.length ||
@@ -278,16 +296,36 @@ class PersonalizationService {
                 favoriteCount: favoriteIds.length,
                 skillCount: skillIds.length,
                 supportNeedCount: supportNeedIds.length,
+                customApprovedCount: customFavorites.length + customSkills.length + customSupportNeeds.length,
+                filteredUnsafeLegacyCount: filteredUnsafeCount,
                 hasAnything: !!hasAnything,
             });
             if (!hasAnything) return null;
 
+            // The STORED embedding for a category was computed at save time
+            // from canonical + custom text TOGETHER (see
+            // childPersonalizationService#computeCategoryEmbedding). If
+            // filtering above dropped every custom value for a category
+            // (legacy unsafe text) and it had no canonical ids either, the
+            // stored vector still semantically reflects that now-rejected
+            // text — using it would leak unsafe content into RANKING even
+            // though it's correctly excluded from promptFavorites/etc. above.
+            // Null it out whenever the category's approved content is empty.
+            const favoritesEmbedding =
+                favoriteIds.length || customFavorites.length ? parseEmbedding(row.favorites_embedding) : null;
+            const skillsEmbedding =
+                skillIds.length || customSkills.length ? parseEmbedding(row.skills_embedding) : null;
+            const supportNeedsEmbedding =
+                supportNeedIds.length || customSupportNeeds.length
+                    ? parseEmbedding(row.support_needs_embedding)
+                    : null;
+
             return {
                 childId,
                 childAge,
-                favoritesEmbedding: parseEmbedding(row.favorites_embedding),
-                skillsEmbedding: parseEmbedding(row.skills_embedding),
-                supportNeedsEmbedding: parseEmbedding(row.support_needs_embedding),
+                favoritesEmbedding,
+                skillsEmbedding,
+                supportNeedsEmbedding,
                 promptFavorites: [...optionsToPromptValues(favoriteIds), ...customFavorites],
                 promptSkills: [...optionsToPromptValues(skillIds), ...customSkills],
                 promptSupportNeeds: [...optionsToPromptValues(supportNeedIds), ...customSupportNeeds],
@@ -1890,6 +1928,12 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         query,
         contentPreferences = [],
         childId = null,
+        // Optional pre-fetched context (see getChildPersonalizationContext).
+        // Pass `null` explicitly (not just omit) to force "no personalization"
+        // without a lookup — used by index.js's reduced-personalization retry.
+        // Omit entirely (undefined) to have this function fetch it itself,
+        // which is what every other existing caller still does.
+        childProfile: providedChildProfile,
         onTip, // async (tip) => void
         onPhase, // (phaseStr) => void
     }) {
@@ -1910,7 +1954,10 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         // docs/child-personalization.md ("Prompt-injection boundary") for the
         // full reasoning. Only approved/normalized text ever reaches here —
         // see utils/personalizationSafety.js and childPersonalizationService.
-        const childProfile = await this.getChildPersonalizationContext(childId);
+        const childProfile =
+            providedChildProfile !== undefined
+                ? providedChildProfile
+                : await this.getChildPersonalizationContext(childId);
         let profileBlock = '';
         if (childProfile) {
             const cap = arr => arr.slice(0, 6);
@@ -2058,7 +2105,12 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         onPhase?.('openai:ended');
     }
 
-    async buildGeneratedTipScoringContext(userId, query, childId = null) {
+    // `providedChildProfile`: optional pre-fetched context (see
+    // getChildPersonalizationContext) so a caller that already fetched it for
+    // the same childId in this request (e.g. generateTipsStreamNDJSON) doesn't
+    // cause a second, redundant DB round-trip. Pass `null` explicitly to force
+    // "no personalization" without a lookup; omit (undefined) to fetch here.
+    async buildGeneratedTipScoringContext(userId, query, childId = null, providedChildProfile) {
         const [[userProfile], [dislikes], queryEmbedding, childProfile] = await Promise.all([
             pool.query(
                 'SELECT preference_embedding FROM user_preference_profiles WHERE user_id = ?',
@@ -2078,7 +2130,9 @@ ABSOLUTE RULES — NO EXCEPTIONS:
                     encoding_format: 'float',
                 })
                 .then(r => r.data[0].embedding),
-            this.getChildPersonalizationContext(childId),
+            providedChildProfile !== undefined
+                ? Promise.resolve(providedChildProfile)
+                : this.getChildPersonalizationContext(childId),
         ]);
 
         let userPreference = null;

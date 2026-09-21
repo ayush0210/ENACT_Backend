@@ -231,10 +231,19 @@ wss.on('connection', async (ws, req) => {
                 effectivePrompt,
             });
 
+            // Load the child's personalization context ONCE per request and
+            // pass it into both the prompt builder and the scoring context —
+            // previously each fetched it independently, so a single request
+            // with a resolved childId issued two redundant DB round-trips for
+            // the identical profile. This is request-scoped (a local const,
+            // not module/shared state) — nothing here can leak between
+            // requests or connections.
+            const childProfile = await personalizationService.getChildPersonalizationContext(childId);
             // TEMP DIAGNOSTIC — confirms generation actually starts.
             console.log('[DIAG] WS beginning tip generation', {
                 generateMode,
                 childId,
+                hasChildProfile: !!childProfile,
                 hasOldUserSurveyData: hasSurveyData,
             });
 
@@ -246,6 +255,7 @@ wss.on('connection', async (ws, req) => {
                         userId,
                         effectivePrompt,
                         childId,
+                        childProfile,
                     );
                 await personalizationService.generateTipsStreamNDJSON({
                     ws,
@@ -256,6 +266,7 @@ wss.on('connection', async (ws, req) => {
                         : effectivePrompt,
                     contentPreferences: enhancedContentPrefs,
                     childId,
+                    childProfile,
                     onPhase: phase =>
                         sendJSON(ws, { type: 'phase', data: phase }),
                     onTip: async tip => {
@@ -295,6 +306,7 @@ wss.on('connection', async (ws, req) => {
                         userId,
                         effectivePrompt,
                         null, // reduced personalization: no child profile
+                        null,
                     );
                 await personalizationService.generateTipsStreamNDJSON({
                     ws,
@@ -305,6 +317,7 @@ wss.on('connection', async (ws, req) => {
                         : effectivePrompt,
                     contentPreferences: enhancedContentPrefs,
                     childId: null,
+                    childProfile: null,
                     onPhase: phase =>
                         sendJSON(ws, { type: 'phase', data: phase }),
                     onTip: async tip => {

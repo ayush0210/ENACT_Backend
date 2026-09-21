@@ -145,3 +145,44 @@ test('rejects violent content', () => {
     assert.equal(result.status, 'rejected');
     assert.equal(result.reasonCode, 'violence_or_abuse');
 });
+
+// --- Gaps found investigating the "Mike" bug report (evidenced by direct
+// reproduction before these patterns were added — see
+// docs/child-personalization.md for the full trace). ---
+
+test('regression: rejects passive-voice violence against a child ("When he gets beaten")', () => {
+    // Previously approved: the shared guardrail's \bbeat\b boundary pattern
+    // did not match the inflected form "beaten".
+    const result = approve('favorite', 'When he gets beaten');
+    assert.equal(result.status, 'rejected');
+});
+
+test('regression: rejects bare "Fighting" as a skill-in-progress', () => {
+    // Previously approved: no pattern covered bare combat terms at all.
+    const result = approve('skill', 'Fighting');
+    assert.equal(result.status, 'rejected');
+    assert.equal(result.reasonCode, 'violence_or_abuse');
+});
+
+test('regression: rejects an ableist slur submitted as a support need', () => {
+    // Previously approved: PROFANITY_HARASSMENT_HATE had no slur coverage
+    // beyond generic profanity (its own comment said "add any specific
+    // slurs your policy team flags").
+    const result = approve('support', 'retard');
+    assert.equal(result.status, 'rejected');
+    assert.equal(result.reasonCode, 'hate_or_harassment');
+});
+
+test('regression: rejects "React Native programming" as outside child-development scope', () => {
+    const result = approve('skill', 'React Native programming');
+    assert.equal(result.status, 'rejected');
+    assert.equal(result.reasonCode, 'outside_scope');
+});
+
+test('rejected values are never echoed in the result (slur/violence text absent)', () => {
+    for (const value of ['When he gets beaten', 'Fighting', 'retard']) {
+        const result = approve('favorite', value);
+        assert.equal(result.status, 'rejected');
+        assert.equal(Object.prototype.hasOwnProperty.call(result, 'normalizedValue'), false);
+    }
+});
