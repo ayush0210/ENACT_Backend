@@ -103,6 +103,12 @@ wss.on('connection', async (ws, req) => {
     });
 
     ws.once('message', async raw => {
+        // TEMP DIAGNOSTIC — remove once the scope-check regression is confirmed
+        // fixed in production. Logs shape/lengths only, never the JWT.
+        console.log(
+            `[DIAG] WS raw message received: length=${String(raw).length}`,
+        );
+
         let msg;
         try {
             msg = JSON.parse(String(raw));
@@ -110,16 +116,32 @@ wss.on('connection', async (ws, req) => {
             sendJSON(ws, { type: 'error', message: 'Bad JSON' });
             return ws.close();
         }
+
+        // TEMP DIAGNOSTIC
+        console.log('[DIAG] WS parsed payload:', {
+            type: msg?.type,
+            promptLength:
+                typeof msg?.prompt === 'string' ? msg.prompt.length : null,
+            contentPreferences: msg?.contentPreferences,
+            generateMode: msg?.generateMode,
+            childId: msg?.childId ?? null,
+        });
+
         if (msg.type !== 'start') {
             sendJSON(ws, {
                 type: 'error',
                 message: 'First message must be type=start',
             });
+            // TEMP DIAGNOSTIC
+            console.log('[DIAG] WS closing: reason=non-start-first-message');
             return ws.close();
         }
 
         try {
             const userId = req.user.id;
+            // TEMP DIAGNOSTIC — auth result, never the token itself.
+            console.log(`[DIAG] WS authenticated userId=${userId}`);
+
             const {
                 prompt,
                 contentPreferences = [],
@@ -128,6 +150,8 @@ wss.on('connection', async (ws, req) => {
             } = msg;
             if (!prompt) {
                 sendJSON(ws, { type: 'error', message: 'Prompt is required' });
+                // TEMP DIAGNOSTIC
+                console.log('[DIAG] WS closing: reason=missing-prompt');
                 return ws.close();
             }
 
@@ -145,14 +169,34 @@ wss.on('connection', async (ws, req) => {
                 );
                 if (ownedChild.length) childId = candidateChildId;
             }
+            // TEMP DIAGNOSTIC — whether a child was resolved for personalization.
+            console.log(
+                `[DIAG] WS childId resolved: raw=${JSON.stringify(rawChildId)} resolved=${childId}`,
+            );
 
             // --- your scope checks (same as REST) ---
+            // NOTE: isStrictlyInScope is `async` (it calls an LLM classifier).
+            // This call was missing `await`, so `v` was a pending Promise —
+            // `v.isValid` was always `undefined`, so `!v.isValid` was always
+            // `true`, and EVERY prompt was rejected as out-of-scope regardless
+            // of content. This is the fix for that regression.
             const effectivePrompt = prompt;
             const approvedActivities = await getApprovedActivities();
-            const v = isStrictlyInScope(prompt, approvedActivities);
+            const v = await isStrictlyInScope(prompt, approvedActivities);
+            // TEMP DIAGNOSTIC — guardrail result, never logs the raw prompt.
+            console.log('[DIAG] WS scope check result:', {
+                isValid: v.isValid,
+                domain: v.domain,
+                reason: v.reason,
+                classifiedBy: v.classifiedBy,
+            });
             if (!v.isValid) {
                 const { status, payload } = categoryReply(v.reason ?? v.type, prompt);
                 sendJSON(ws, { type: 'out_of_scope', status, payload });
+                // TEMP DIAGNOSTIC
+                console.log(
+                    `[DIAG] WS closing: reason=out_of_scope guardrailReason=${v.reason ?? v.type}`,
+                );
                 return ws.close();
             }
 
@@ -185,6 +229,13 @@ wss.on('connection', async (ws, req) => {
                 mode: generateMode,
                 hasSurveyData,
                 effectivePrompt,
+            });
+
+            // TEMP DIAGNOSTIC — confirms generation actually starts.
+            console.log('[DIAG] WS beginning tip generation', {
+                generateMode,
+                childId,
+                hasOldUserSurveyData: hasSurveyData,
             });
 
             // --- stream AI tips first ---
@@ -302,6 +353,8 @@ wss.on('connection', async (ws, req) => {
             }
 
             sendJSON(ws, { type: 'done' });
+            // TEMP DIAGNOSTIC
+            console.log(`[DIAG] WS closing: reason=done emittedTips=${emitted}`);
             ws.close();
         } catch (err) {
             console.error('WS error:', err);
@@ -309,6 +362,8 @@ wss.on('connection', async (ws, req) => {
                 type: 'error',
                 message: err?.message || 'Internal error',
             });
+            // TEMP DIAGNOSTIC
+            console.log(`[DIAG] WS closing: reason=caught-error message=${err?.message}`);
             ws.close();
         }
     });

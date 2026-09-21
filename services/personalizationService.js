@@ -208,7 +208,11 @@ class PersonalizationService {
      * naturally clean it up).
      */
     async getChildPersonalizationContext(childId) {
-        if (!childId || !Number.isInteger(childId)) return null;
+        if (!childId || !Number.isInteger(childId)) {
+            // TEMP DIAGNOSTIC — no content, just whether personalization applies.
+            console.log('[DIAG] getChildPersonalizationContext: no childId, skipping');
+            return null;
+        }
 
         try {
             const [[child], [profileRows]] = await Promise.all([
@@ -267,6 +271,15 @@ class PersonalizationService {
                 customFavorites.length ||
                 customSkills.length ||
                 customSupportNeeds.length;
+            // TEMP DIAGNOSTIC — counts only, never the actual profile text.
+            console.log('[DIAG] getChildPersonalizationContext loaded', {
+                childId,
+                childAge,
+                favoriteCount: favoriteIds.length,
+                skillCount: skillIds.length,
+                supportNeedCount: supportNeedIds.length,
+                hasAnything: !!hasAnything,
+            });
             if (!hasAnything) return null;
 
             return {
