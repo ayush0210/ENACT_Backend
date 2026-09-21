@@ -210,8 +210,6 @@ class PersonalizationService {
      */
     async getChildPersonalizationContext(childId) {
         if (!childId || !Number.isInteger(childId)) {
-            // TEMP DIAGNOSTIC — no content, just whether personalization applies.
-            console.log('[DIAG] getChildPersonalizationContext: no childId, skipping');
             return null;
         }
 
@@ -277,10 +275,6 @@ class PersonalizationService {
             const customFavorites = filterApprovedCustomText(rawCustomFavorites, 'favorite', effectiveAge);
             const customSkills = filterApprovedCustomText(rawCustomSkills, 'skill', effectiveAge);
             const customSupportNeeds = filterApprovedCustomText(rawCustomSupportNeeds, 'support', effectiveAge);
-            const filteredUnsafeCount =
-                rawCustomFavorites.length - customFavorites.length +
-                (rawCustomSkills.length - customSkills.length) +
-                (rawCustomSupportNeeds.length - customSupportNeeds.length);
 
             const hasAnything =
                 favoriteIds.length ||
@@ -289,17 +283,6 @@ class PersonalizationService {
                 customFavorites.length ||
                 customSkills.length ||
                 customSupportNeeds.length;
-            // TEMP DIAGNOSTIC — counts only, never the actual profile text.
-            console.log('[DIAG] getChildPersonalizationContext loaded', {
-                childId,
-                childAge,
-                favoriteCount: favoriteIds.length,
-                skillCount: skillIds.length,
-                supportNeedCount: supportNeedIds.length,
-                customApprovedCount: customFavorites.length + customSkills.length + customSupportNeeds.length,
-                filteredUnsafeLegacyCount: filteredUnsafeCount,
-                hasAnything: !!hasAnything,
-            });
             if (!hasAnything) return null;
 
             // The STORED embedding for a category was computed at save time
