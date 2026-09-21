@@ -15,6 +15,7 @@ import morgan from 'morgan';
 import user from './routes/user.js';
 import tips from './routes/tips.js';
 import childrenRouter from './routes/children.js';
+import childPersonalizationRouter from './routes/childPersonalization.js';
 import sessionRoutes from './routes/sessions.js';
 import dashboardRoutes from './routes/dashboard.js';
 import adminRoutes from './routes/adminRoutes.js';
@@ -42,6 +43,7 @@ app.use(cookieParser('session'));
 app.use(body.json());
 app.use(body.urlencoded({ extended: true }));
 app.use('/endpoint', childrenRouter);
+app.use('/api/children', childPersonalizationRouter);
 app.use('/endpoint/session', sessionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminRoutes);
@@ -122,10 +124,26 @@ wss.on('connection', async (ws, req) => {
                 prompt,
                 contentPreferences = [],
                 generateMode = 'hybrid',
+                childId: rawChildId = null,
             } = msg;
             if (!prompt) {
                 sendJSON(ws, { type: 'error', message: 'Prompt is required' });
                 return ws.close();
+            }
+
+            // Never trust a client-supplied childId without verifying
+            // ownership — same rule as every REST route in this codebase
+            // (see routes/children.js). An unowned/unknown id is treated as
+            // "no child context" rather than an error, since childId here is
+            // purely an optional personalization hint, not a required field.
+            let childId = null;
+            const candidateChildId = Number(rawChildId);
+            if (Number.isInteger(candidateChildId) && candidateChildId > 0) {
+                const [ownedChild] = await pool.query(
+                    'SELECT id FROM children WHERE id = ? AND user_id = ?',
+                    [candidateChildId, userId],
+                );
+                if (ownedChild.length) childId = candidateChildId;
             }
 
             // --- your scope checks (same as REST) ---
@@ -176,6 +194,7 @@ wss.on('connection', async (ws, req) => {
                     personalizationService.buildGeneratedTipScoringContext(
                         userId,
                         effectivePrompt,
+                        childId,
                     );
                 await personalizationService.generateTipsStreamNDJSON({
                     ws,
@@ -185,6 +204,7 @@ wss.on('connection', async (ws, req) => {
                         ? `${effectivePrompt}\n\nUser Context: ${surveyContext}`
                         : effectivePrompt,
                     contentPreferences: enhancedContentPrefs,
+                    childId,
                     onPhase: phase =>
                         sendJSON(ws, { type: 'phase', data: phase }),
                     onTip: async tip => {
@@ -197,6 +217,56 @@ wss.on('connection', async (ws, req) => {
                                     tip,
                                     context: scoringContextPromise,
                                     strict: false,
+                                    childId,
+                                },
+                            );
+                        emitted += 1;
+                        sendJSON(ws, {
+                            type: 'tip',
+                            source: 'ai',
+                            data: scored || tip,
+                        });
+                    },
+                });
+            }
+
+            // --- Retry with reduced personalization if the personalized
+            // generation came up short (e.g. tips were dropped by the
+            // output-validation gate). One bounded retry, same prompt, no
+            // child profile — before falling all the way back to the DB. ---
+            if (
+                emitted < 3 &&
+                childId &&
+                (generateMode === 'generate' || generateMode === 'hybrid')
+            ) {
+                const retryScoringContextPromise =
+                    personalizationService.buildGeneratedTipScoringContext(
+                        userId,
+                        effectivePrompt,
+                        null, // reduced personalization: no child profile
+                    );
+                await personalizationService.generateTipsStreamNDJSON({
+                    ws,
+                    abortedRef: () => aborted,
+                    userId,
+                    query: surveyContext
+                        ? `${effectivePrompt}\n\nUser Context: ${surveyContext}`
+                        : effectivePrompt,
+                    contentPreferences: enhancedContentPrefs,
+                    childId: null,
+                    onPhase: phase =>
+                        sendJSON(ws, { type: 'phase', data: phase }),
+                    onTip: async tip => {
+                        if (emitted >= 3) return;
+                        const scored =
+                            await personalizationService.scoreSingleGeneratedTip(
+                                {
+                                    userId,
+                                    query: effectivePrompt,
+                                    tip,
+                                    context: retryScoringContextPromise,
+                                    strict: false,
+                                    childId: null,
                                 },
                             );
                         emitted += 1;
@@ -220,6 +290,7 @@ wss.on('connection', async (ws, req) => {
                         effectivePrompt,
                         3 - emitted,
                         enhancedContentPrefs,
+                        childId,
                     );
                 if (dbResult?.tips?.length) {
                     sendJSON(ws, {

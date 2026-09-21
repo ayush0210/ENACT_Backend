@@ -565,6 +565,105 @@ export function classifyParentingQuery(prompt) {
     return { ok: true, category: 'ok', age: age ?? null };
 }
 
+// Reusable hard-safety category check, independent of the "is this parenting-
+// related" positive-scope gate inside classifyParentingQuery. classifyParentingQuery
+// is tuned for full sentences/questions ("tips for my 3yo at bedtime") and its
+// positive gate would false-reject short, non-sentence input like a single
+// interest word ("dinosaurs") that never mentions a child term or topic.
+// This function reuses the SAME pattern constants as classifyParentingQuery
+// (no duplicated regex lists — this is the same central safety policy, just a
+// different composition of it) but only checks for hard-unsafe content, so
+// it's safe to run over short survey answers too.
+// Used by utils/personalizationSafety.js for the personalization survey's
+// custom-answer moderation pipeline.
+export function classifyUnsafeContent(text) {
+    const raw = text || '';
+    const q = hardNormalize(raw);
+
+    // Re-check decoded variants (base64/hex) first, same as classifyParentingQuery.
+    const decodedCandidates = [];
+    if (looksBase64(raw)) {
+        const d = tryBase64Decode(raw);
+        if (d) decodedCandidates.push(d);
+    }
+    if (looksHex(raw)) {
+        const d = tryHexDecode(raw);
+        if (d) decodedCandidates.push(d);
+    }
+    for (const dec of decodedCandidates) {
+        const sub = classifyUnsafeContent(dec);
+        if (!sub.ok) return sub;
+    }
+
+    const hasSensitiveParenting = containsAny(q, ALLOWLIST_SENSITIVE_PARENTING);
+
+    if (hasMatch(q, DANGEROUS_PATTERNS)) {
+        return { ok: false, category: 'illegal_activity' };
+    }
+    if (!hasSensitiveParenting) {
+        if (
+            SEXUAL.test(q) ||
+            matchesLooseAny(q, ['sex', 'porn', 'nude', 'orgasm', 'fetish', 'kink'])
+        ) {
+            return { ok: false, category: 'adult_content' };
+        }
+        if (ADULT_REL.test(q) || matchesLooseAny(q, ['dating', 'hookup'])) {
+            return { ok: false, category: 'adult_relationships' };
+        }
+    }
+    if (PROFANITY_HARASSMENT_HATE.some(re => re.test(q))) {
+        return { ok: false, category: 'harassment_hate' };
+    }
+    if (
+        VIOLENCE_WEAPONS.test(q) ||
+        matchesLooseAny(q, ['kill', 'murder', 'shoot', 'bomb', 'weapon', 'gun', 'knife'])
+    ) {
+        return { ok: false, category: 'violence_illegal' };
+    }
+    if (
+        DRUGS.test(q) ||
+        matchesLooseAny(q, [
+            'weed', 'marijuana', 'cocaine', 'heroin', 'meth', 'lsd', 'mdma', 'fentanyl', 'vape', 'alcohol',
+        ])
+    ) {
+        return { ok: false, category: 'drugs_alcohol' };
+    }
+    if (
+        FINANCE.test(q) ||
+        FINANCIAL_ACTION.test(q) ||
+        matchesLooseAny(q, ['crypto', 'bitcoin', 'ethereum', 'stock', 'forex', 'option', 'trading', 'invest'])
+    ) {
+        return { ok: false, category: 'finance_investing' };
+    }
+    if (POLITICS.test(q)) {
+        return { ok: false, category: 'politics' };
+    }
+    if (
+        GAMBLING.test(q) ||
+        matchesLooseAny(q, ['casino', 'poker', 'blackjack', 'bet', 'parlay', 'sportsbook', 'lottery'])
+    ) {
+        return { ok: false, category: 'gambling' };
+    }
+    if (CAREER.test(q)) {
+        return { ok: false, category: 'career_jobs' };
+    }
+    if (
+        ILLEGAL.test(q) ||
+        EXPLOIT_ILLEGAL.test(q) ||
+        matchesLooseAny(q, ['hack', 'exploit', 'ddos', 'malware', 'sql injection', 'rootkit', 'zero day'])
+    ) {
+        return { ok: false, category: 'illegal_activity' };
+    }
+    if (SOFTWARE_IT.test(q)) {
+        return { ok: false, category: 'software_it' };
+    }
+    if (MEDICAL_LEGAL.test(q) || hasMatch(q, MEDICAL_LEGAL_PATTERNS)) {
+        return { ok: false, category: 'medical_legal' };
+    }
+
+    return { ok: true, category: 'ok' };
+}
+
 // Backwards compatible wrapper you already call in routes
 export function validateParentingQuery(prompt) {
     const r = classifyParentingQuery(prompt);
