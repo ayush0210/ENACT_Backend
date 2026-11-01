@@ -50,6 +50,13 @@ function normalizeGeneratedDomain(category) {
     return aliases.get(normalized) || category;
 }
 
+// Named exports (alongside the default singleton below) so other modules —
+// e.g. routes/personalization.js's ensureTipExists, a second independent
+// tip-insert path for the offline-queue batch sync — can recover a tip's
+// domain the same way upsertGeneratedTip does, without duplicating this
+// classification logic.
+export { SELECTABLE_DOMAINS, normalizeGeneratedDomain };
+
 /**
  * Hard limits & weights to keep tips strictly on-topic.
  */
@@ -364,6 +371,25 @@ class PersonalizationService {
             ? tipPayload.categories
             : [];
 
+        // generateTipsStreamNDJSON (and the non-streaming path) already set
+        // categories to exactly [oneOfTheFourCanonicalDomains] for every
+        // generated tip (see SELECTABLE_DOMAINS/normalizeGeneratedDomain
+        // above) — recover that here so it lands in tips.domain instead of
+        // only ever living in the free-text tip_categories table. Any
+        // caller sending extra/different category tags (not one of the 4)
+        // just leaves domain NULL rather than guessing.
+        const domainCategory = categories.find(c => {
+            const value = typeof c === 'string' ? c : c?.value ?? c?.category;
+            return SELECTABLE_DOMAINS.includes(normalizeGeneratedDomain(value));
+        });
+        const domain = domainCategory
+            ? normalizeGeneratedDomain(
+                  typeof domainCategory === 'string'
+                      ? domainCategory
+                      : domainCategory.value ?? domainCategory.category,
+              )
+            : null;
+
         // Deduplicate by content
         const content_hash = crypto
             .createHash('sha256')
@@ -379,9 +405,9 @@ class PersonalizationService {
 
         // Insert the tip
         const [ins] = await pool.query(
-            `INSERT INTO tips (type, title, description, source, content_hash)
-       VALUES (?, ?, ?, 'ai', ?)`,
-            ['generated', title, body, content_hash],
+            `INSERT INTO tips (type, title, description, source, content_hash, domain)
+       VALUES (?, ?, ?, 'ai', ?, ?)`,
+            ['generated', title, body, content_hash, domain],
         );
         const newTipId = ins.insertId;
 
@@ -1190,12 +1216,16 @@ ABSOLUTE RULES — NO EXCEPTIONS:
     }
 
     // ---------- Interactions & profiles ----------
-    async trackUserInteraction(userId, tipId, interactionType) {
+    // childId is optional (NULL) for callers that don't yet resolve an
+    // active child (e.g. older clients); see migrations/005_add_child_id_to_user_tip_interactions.sql
+    // for why this isn't retroactive for existing rows.
+    async trackUserInteraction(userId, tipId, interactionType, childId = null) {
         try {
             console.log('🔍 trackUserInteraction called with:', {
                 userId,
                 tipId,
                 interactionType,
+                childId,
             });
 
             // Verify tip & user
@@ -1213,34 +1243,47 @@ ABSOLUTE RULES — NO EXCEPTIONS:
             if (userExists.length === 0)
                 throw new Error(`User with ID ${userId} does not exist`);
 
+            // childId, when provided, must actually belong to this user —
+            // never trust a client-supplied child id without revalidating
+            // ownership server-side (same rule as every other child-scoped
+            // write in this codebase, e.g. childPersonalizationService.js).
+            let verifiedChildId = null;
+            if (childId !== null && childId !== undefined) {
+                const [childExists] = await pool.query(
+                    'SELECT id FROM children WHERE id = ? AND user_id = ?',
+                    [childId, userId],
+                );
+                if (childExists.length > 0) verifiedChildId = childId;
+            }
+
             // Apply interaction logic (like ↔ dislike mutual exclusion)
             if (interactionType === 'like') {
                 await pool.query(
-                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "dislike"',
-                    [userId, tipId],
+                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "dislike" AND (child_id <=> ?)',
+                    [userId, tipId, verifiedChildId],
                 );
                 await pool.query(
-                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type) VALUES (?, ?, "like")',
-                    [userId, tipId],
+                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type, child_id) VALUES (?, ?, "like", ?)',
+                    [userId, tipId, verifiedChildId],
                 );
             } else if (interactionType === 'dislike') {
                 await pool.query(
-                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "like"',
-                    [userId, tipId],
+                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "like" AND (child_id <=> ?)',
+                    [userId, tipId, verifiedChildId],
                 );
                 await pool.query(
-                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type) VALUES (?, ?, "dislike")',
-                    [userId, tipId],
+                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type, child_id) VALUES (?, ?, "dislike", ?)',
+                    [userId, tipId, verifiedChildId],
                 );
             } else if (interactionType === 'save') {
                 await pool.query(
-                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type) VALUES (?, ?, "save")',
-                    [userId, tipId],
+                    'INSERT IGNORE INTO user_tip_interactions (user_id, tip_id, interaction_type, child_id) VALUES (?, ?, "save", ?)',
+                    [userId, tipId, verifiedChildId],
                 );
             } else if (interactionType === 'unsave') {
                 await pool.query(
-                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "save"',
-                    [userId, tipId],
+                    'DELETE FROM user_tip_interactions WHERE user_id = ? AND tip_id = ? AND interaction_type = "save" AND (child_id <=> ?)',
+                    [userId, tipId, verifiedChildId],
                 );
             }
 
@@ -1256,6 +1299,107 @@ ABSOLUTE RULES — NO EXCEPTIONS:
             console.error('❌ Error in trackUserInteraction:', error);
             throw error;
         }
+    }
+
+    // ---------- Weekly Reflection ----------
+    // Per-child weekly like-pattern summary. Deliberately built ONLY from
+    // data that already exists (likes attributed to a child via
+    // trackUserInteraction, and tips.domain) — no outcome/"worked well"
+    // data, no usage/session tracking, matching the 2026-10-05 MVP scope
+    // decision (see docs/weekly-reflection.md if/when written up).
+    //
+    // "Something new" is picked from whichever of the 4 domains this child
+    // has liked the LEAST (all-time, not just this week), rather than from
+    // their personalization favorites/skills — the personalization option
+    // IDs (utils/personalizationOptions.js) and tip domains are two
+    // different, unreconciled vocabularies today (see migrations/004's
+    // header comment), so a literal "they said they want X, here's an X
+    // tip" match isn't reliable yet. Under-explored-domain is an honest,
+    // data-backed proxy for the same "try something you haven't" goal
+    // without overstating what the data supports.
+    async getWeeklyReflection(userId, childId) {
+        const [[child]] = await pool.query(
+            'SELECT id FROM children WHERE id = ? AND user_id = ?',
+            [childId, userId],
+        );
+        if (!child) {
+            const err = new Error('Child not found for this user');
+            err.status = 404;
+            throw err;
+        }
+
+        const [thisWeekLikes] = await pool.query(
+            `SELECT t.id, t.title, t.description, t.domain, uti.created_at
+             FROM user_tip_interactions uti
+             JOIN tips t ON t.id = uti.tip_id
+             WHERE uti.user_id = ? AND uti.child_id = ? AND uti.interaction_type = 'like'
+               AND uti.created_at >= (NOW() - INTERVAL 7 DAY)
+             ORDER BY uti.created_at DESC`,
+            [userId, childId],
+        );
+
+        const domainCountsThisWeek = new Map();
+        for (const row of thisWeekLikes) {
+            if (!row.domain) continue; // not yet backfilled — excluded, not guessed
+            domainCountsThisWeek.set(row.domain, (domainCountsThisWeek.get(row.domain) ?? 0) + 1);
+        }
+        const domainCounts = [...domainCountsThisWeek.entries()]
+            .map(([domain, count]) => ({ domain, count }))
+            .sort((a, b) => b.count - a.count);
+
+        const topDomain = domainCounts[0]?.domain ?? null;
+        const favoriteToRevisit =
+            thisWeekLikes.find(t => t.domain === topDomain) ?? thisWeekLikes[0] ?? null;
+
+        // All-time per-domain like counts for this child, to find the least-
+        // engaged domain (0 if never liked — Map.get default below).
+        const [allTimeLikes] = await pool.query(
+            `SELECT t.domain, COUNT(*) as count
+             FROM user_tip_interactions uti
+             JOIN tips t ON t.id = uti.tip_id
+             WHERE uti.user_id = ? AND uti.child_id = ? AND uti.interaction_type = 'like'
+               AND t.domain IS NOT NULL
+             GROUP BY t.domain`,
+            [userId, childId],
+        );
+        const allTimeCountByDomain = new Map(allTimeLikes.map(r => [r.domain, r.count]));
+        const leastEngagedDomain = [...SELECTABLE_DOMAINS].sort(
+            (a, b) => (allTimeCountByDomain.get(a) ?? 0) - (allTimeCountByDomain.get(b) ?? 0),
+        )[0];
+
+        const [somethingNewRows] = await pool.query(
+            `SELECT t.id, t.title, t.description, t.domain
+             FROM tips t
+             WHERE t.domain = ?
+               AND t.id NOT IN (
+                   SELECT tip_id FROM user_tip_interactions WHERE user_id = ? AND child_id = ?
+               )
+             ORDER BY RAND()
+             LIMIT 1`,
+            [leastEngagedDomain, userId, childId],
+        );
+
+        return {
+            childId,
+            likedCount: thisWeekLikes.length,
+            domainCounts,
+            favoriteToRevisit: favoriteToRevisit
+                ? {
+                      id: favoriteToRevisit.id,
+                      title: favoriteToRevisit.title,
+                      body: favoriteToRevisit.description,
+                      domain: favoriteToRevisit.domain,
+                  }
+                : null,
+            somethingNew: somethingNewRows[0]
+                ? {
+                      id: somethingNewRows[0].id,
+                      title: somethingNewRows[0].title,
+                      body: somethingNewRows[0].description,
+                      domain: somethingNewRows[0].domain,
+                  }
+                : null,
+        };
     }
 
     cosineSimilarity(vecA, vecB) {

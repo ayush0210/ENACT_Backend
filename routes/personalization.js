@@ -1,6 +1,9 @@
 import express from 'express';
 import { authenticateJWT } from './middleware.js';
-import personalizationService from '../services/personalizationService.js';
+import personalizationService, {
+    SELECTABLE_DOMAINS,
+    normalizeGeneratedDomain,
+} from '../services/personalizationService.js';
 import {
     isStrictlyInScope,
     REJECTION_MESSAGE,
@@ -88,7 +91,7 @@ export function categoryReply(category, originalQuery) {
 router.post('/interactions', authenticateJWT, async (req, res) => {
     try {
         const userId = req.user.id;
-        const { tipId, interactionType, tipPayload } = req.body;
+        const { tipId, interactionType, tipPayload, childId } = req.body;
 
         const validTypes = ['like', 'dislike', 'save', 'unsave'];
         if (!validTypes.includes(interactionType)) {
@@ -113,6 +116,7 @@ router.post('/interactions', authenticateJWT, async (req, res) => {
             userId,
             finalTipId,
             interactionType,
+            childId ?? null,
         );
 
         res.status(200).json({
@@ -420,6 +424,7 @@ router.post('/ai-interactions/batch', authenticateJWT, async (req, res) => {
                     userId,
                     tipId,
                     interactionType,
+                    item?.childId ?? null,
                 );
                 persisted++;
             } catch (e) {
@@ -1261,6 +1266,15 @@ async function ensureTipExists(tipId, aiTip = {}) {
             ? aiTip.categories[0]
             : 'generated';
 
+    // Same domain recovery as personalizationService.upsertGeneratedTip —
+    // this is a second, independent insert path (the offline-queue batch
+    // sync below) for the same generated-tip shape, so it needs the same
+    // treatment or these tips would silently never get a domain.
+    const domainCategory = Array.isArray(aiTip?.categories)
+        ? aiTip.categories.find(c => SELECTABLE_DOMAINS.includes(normalizeGeneratedDomain(c)))
+        : null;
+    const domain = domainCategory ? normalizeGeneratedDomain(domainCategory) : null;
+
     // Try to find an existing row with same content to avoid dupes
     const [existing] = await pool.query(
         `SELECT id FROM tips WHERE type = ? AND title = ? AND description = ? LIMIT 1`,
@@ -1270,8 +1284,8 @@ async function ensureTipExists(tipId, aiTip = {}) {
 
     // Insert new tip
     const [insert] = await pool.query(
-        `INSERT INTO tips (title, description, type) VALUES (?, ?, ?)`,
-        [title, description, type],
+        `INSERT INTO tips (title, description, type, domain) VALUES (?, ?, ?, ?)`,
+        [title, description, type, domain],
     );
     const newId = insert.insertId;
 

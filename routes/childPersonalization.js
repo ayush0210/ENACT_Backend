@@ -97,6 +97,26 @@ router.put('/:childId/personalization', authenticateJWT, async (req, res) => {
     }
 });
 
+router.get('/:childId/weekly-reflection', authenticateJWT, async (req, res) => {
+    const childId = parseChildId(req, res);
+    if (childId === null) return;
+
+    try {
+        const reflection = await personalizationService.getWeeklyReflection(req.user.id, childId);
+        return res.status(200).json({ success: true, reflection });
+    } catch (error) {
+        if (error.status === 404) {
+            return res.status(404).json({ success: false, error: 'child_not_found', message: error.message });
+        }
+        console.error('Error fetching weekly reflection:', error.message);
+        return res.status(500).json({
+            success: false,
+            error: 'internal_error',
+            message: 'Failed to fetch weekly reflection',
+        });
+    }
+});
+
 router.post('/:childId/personalization/confirm-current', authenticateJWT, async (req, res) => {
     const childId = parseChildId(req, res);
     if (childId === null) return;
