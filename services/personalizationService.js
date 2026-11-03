@@ -1367,10 +1367,22 @@ ABSOLUTE RULES — NO EXCEPTIONS:
             (a, b) => (allTimeCountByDomain.get(a) ?? 0) - (allTimeCountByDomain.get(b) ?? 0),
         )[0];
 
+        // source = 'db' ONLY — never surface a source='ai' tip here. Generated
+        // tips are often personalized with a specific family's child's real
+        // name baked directly into the title/body text (e.g. "Expand
+        // Devesh's Vocabulary"), and tips live in one shared table with no
+        // per-family scoping. A generated tip picked at random here could
+        // leak another family's child's name to an unrelated caregiver —
+        // confirmed happening in practice (2026-11 bug report). The
+        // source='db' seed tips are generic, location-based content with no
+        // names in them, so they're the only safe pool for a cross-family
+        // random pick. This does shrink the candidate pool, but correctness
+        // here matters more than variety.
         const [somethingNewRows] = await pool.query(
             `SELECT t.id, t.title, t.description, t.domain
              FROM tips t
              WHERE t.domain = ?
+               AND t.source = 'db'
                AND t.id NOT IN (
                    SELECT tip_id FROM user_tip_interactions WHERE user_id = ? AND child_id = ?
                )
