@@ -122,13 +122,17 @@ router.post('/geofence-enter', authenticateJWT, async (req, res) => {
             tips = Array.isArray(result) ? result : (result.tips || []);
             if (!tips.length) throw new Error('empty result');
         } catch (_) {
-            // Fallback: type-specific tips from DB
+            // Fallback: type-specific tips from DB. source='db' only in both
+            // queries — this builds a push notification payload, and
+            // source='ai' tips are often personalized with another family's
+            // real child name baked into the text (see routes/tips.js's
+            // /most-liked fix for the same root cause).
             const [fb] = await pool.query(
-                'SELECT id, title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
+                "SELECT id, title, description FROM tips WHERE type = ? AND source = 'db' ORDER BY RAND() LIMIT 3",
                 [location.type]
             );
             tips = fb.length ? fb : (await pool.query(
-                'SELECT id, title, description FROM tips ORDER BY RAND() LIMIT 3'
+                "SELECT id, title, description FROM tips WHERE source = 'db' ORDER BY RAND() LIMIT 3"
             ))[0];
         }
 

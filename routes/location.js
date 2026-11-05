@@ -230,9 +230,14 @@ router.post('/tips', authenticateJWT, async (req, res) => {
     try {
         const { type } = req.body;
         // const db = await pool.getConnection();
-        const [rows] = await pool.query('SELECT * FROM tips WHERE type = ?', [
-            type,
-        ]);
+        // source = 'db' only — `type` is client-supplied with no validation;
+        // without this, a caller could pass type:"generated" and pull back
+        // source='ai' tips, which are often personalized with another
+        // family's real child name baked into the text.
+        const [rows] = await pool.query(
+            "SELECT * FROM tips WHERE type = ? AND source = 'db'",
+            [type],
+        );
         // db.release();
         // select 3 random tips
         const tips = [];
@@ -541,9 +546,13 @@ router.post('/', authenticateJWT, async (req, res) => {
                 .join('\n\n');
         } catch (e) {
             console.log('Personalization failed, falling back to generic tips:', e.message);
-            // Fallback to type-specific tips
+            // Fallback to type-specific tips. source='db' only in both
+            // queries below — this builds a push notification payload, and
+            // source='ai' tips are often personalized with another family's
+            // real child name baked into the text (see routes/tips.js's
+            // /most-liked fix for the same root cause).
             const [fallbackTips] = await pool.query(
-                'SELECT title, description FROM tips WHERE type = ? ORDER BY RAND() LIMIT 3',
+                "SELECT title, description FROM tips WHERE type = ? AND source = 'db' ORDER BY RAND() LIMIT 3",
                 [nearbyLocation.type],
             );
             tips = fallbackTips;
@@ -551,7 +560,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             if (tips.length === 0) {
                 console.log(`No tips found for type '${nearbyLocation.type}', using general tips`);
                 const [generalTips] = await pool.query(
-                    'SELECT title, description FROM tips ORDER BY RAND() LIMIT 3',
+                    "SELECT title, description FROM tips WHERE source = 'db' ORDER BY RAND() LIMIT 3",
                 );
                 tips = generalTips;
             }

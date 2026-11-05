@@ -20,7 +20,16 @@ pool.query(`
 router.post('/get-tips', async (req, res) => {
     try {
         const { type, AI } = req.body;
-        const [rows] = await pool.query('SELECT * FROM tips WHERE type = ?', [type]);
+        // source = 'db' only — this route is unauthenticated and `type` is
+        // client-supplied with no validation, so without this a caller could
+        // pass type:"generated" directly and pull back source='ai' tips,
+        // which are often personalized with another family's real child
+        // name baked into the text. See routes/tips.js's /most-liked fix
+        // above for the same root cause.
+        const [rows] = await pool.query(
+            "SELECT * FROM tips WHERE type = ? AND source = 'db'",
+            [type],
+        );
 
         if (!AI) {
             const tips = [];
@@ -92,6 +101,13 @@ router.post('/get-tips', async (req, res) => {
 });
 
 // GET /tips/most-liked — top tips ranked by community likes
+//
+// source = 'db' ONLY — same reasoning as personalizationService.js's
+// getWeeklyReflection: source='ai' tips are often personalized with a
+// specific family's real child name baked into the title/body text, and
+// this is an unauthenticated, public endpoint. Ranking by community likes
+// could surface one family's named tip to anyone. source='db' seed tips are
+// generic, never-personalized content, so they're the only safe pool here.
 router.get('/most-liked', async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 10, 50);
@@ -99,6 +115,7 @@ router.get('/most-liked', async (req, res) => {
             `SELECT t.*, COUNT(tl.id) AS likes_count
              FROM tips t
              LEFT JOIN tip_likes tl ON t.id = tl.tip_id
+             WHERE t.source = 'db'
              GROUP BY t.id
              ORDER BY likes_count DESC, t.id ASC
              LIMIT ?`,

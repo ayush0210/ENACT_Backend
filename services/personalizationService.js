@@ -1656,6 +1656,11 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         }
     }
 
+    // source = 'db' only — used as a cross-user fallback recommendation
+    // (routes/activities.js and the personalization-failure fallbacks
+    // below), and source='ai' tips are often personalized with a specific
+    // family's real child name baked into the title/body text. Same root
+    // cause as routes/tips.js's /most-liked fix.
     async getPopularTips(limit = 10) {
         try {
             const [tips] = await pool.query(
@@ -1665,10 +1670,11 @@ ABSOLUTE RULES — NO EXCEPTIONS:
         FROM tips t
         LEFT JOIN (
           SELECT tip_id, COUNT(*) as interaction_count
-          FROM user_tip_interactions 
+          FROM user_tip_interactions
           WHERE interaction_type = 'like'
           GROUP BY tip_id
         ) interactions ON t.id = interactions.tip_id
+        WHERE t.source = 'db'
         ORDER BY popularity DESC, t.id
         LIMIT ?
       `,
