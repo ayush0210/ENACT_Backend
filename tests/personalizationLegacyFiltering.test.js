@@ -23,9 +23,9 @@ test('keeps all values when none are unsafe', () => {
     assert.deepEqual(result, ['loves painting', 'toy trains']);
 });
 
-test('drops an ableist slur stored under support needs', () => {
-    const result = filterApprovedCustomText(['uses hearing aids', 'retard'], 'support', 4);
-    assert.deepEqual(result, ['uses hearing aids']);
+test('drops an ableist slur stored as a legacy custom skill', () => {
+    const result = filterApprovedCustomText(['working on using scissors', 'retard'], 'skill', 4);
+    assert.deepEqual(result, ['working on using scissors']);
 });
 
 test('returns an empty array for a fully-unsafe legacy record (never partially-unsafe leakage)', () => {

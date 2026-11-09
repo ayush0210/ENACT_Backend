@@ -6,13 +6,12 @@ import {
     validateOptionIdsForCategory,
     optionsToPromptValues,
     optionsToLabels,
-    PREFER_NOT_TO_ANSWER_ID,
 } from '../utils/personalizationOptions.js';
 
 test('registry pin: every option has the required shape', () => {
     for (const opt of PERSONALIZATION_OPTIONS) {
         assert.equal(typeof opt.id, 'string');
-        assert.ok(['favorite', 'skill', 'support'].includes(opt.category));
+        assert.ok(['favorite', 'skill'].includes(opt.category));
         assert.equal(typeof opt.label, 'string');
         assert.ok(Number.isInteger(opt.minAge));
         assert.ok(Number.isInteger(opt.maxAge));
@@ -84,14 +83,25 @@ test('validateOptionIdsForCategory normalizes duplicate ids instead of erroring'
     assert.deepEqual(errors, []);
 });
 
-test('"Prefer not to answer" is a valid support option for every age', () => {
-    const option = getOptionById(PREFER_NOT_TO_ANSWER_ID);
-    assert.ok(option);
-    assert.equal(option.category, 'support');
-    for (let age = 0; age <= 5; age++) {
-        const { validIds } = validateOptionIdsForCategory([PREFER_NOT_TO_ANSWER_ID], 'support', age);
-        assert.deepEqual(validIds, [PREFER_NOT_TO_ANSWER_ID]);
-    }
+// IRB compliance: the "Support needs" category and every option in it
+// (AAC device, hearing/visual/physical impairment, etc.) must no longer
+// exist in the registry at all — this is medical/disability information
+// the study is not approved to collect.
+test('the registry no longer contains a "support" category or any support-* option ids', () => {
+    assert.ok(!PERSONALIZATION_OPTIONS.some(o => o.category === 'support'));
+    assert.ok(!PERSONALIZATION_OPTIONS.some(o => o.id.startsWith('support-')));
+    assert.equal(getOptionById('support-aac-device'), null);
+    assert.equal(getOptionById('support-prefer-not-to-answer'), null);
+});
+
+test('an old client still submitting a support-* id gets it rejected as unknown, not silently accepted', () => {
+    const { validIds, errors } = validateOptionIdsForCategory(
+        ['support-aac-device'],
+        'favorite',
+        3,
+    );
+    assert.deepEqual(validIds, []);
+    assert.equal(errors[0].reason, 'unknown_option');
 });
 
 test('optionsToPromptValues/optionsToLabels skip unknown ids safely', () => {

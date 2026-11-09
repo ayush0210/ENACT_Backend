@@ -26,14 +26,19 @@ export const PERSONALIZATION_BLEND = {
 };
 
 /**
- * Within the survey signal itself: skills-in-progress and support needs are
- * high-value retrieval/adaptation signals. Favorites are intentionally
- * capped lower — a favorite should usually flavor an example/theme, not
- * redefine the learning objective.
+ * Within the survey signal itself: skills-in-progress is a high-value
+ * retrieval/adaptation signal. Favorites are intentionally capped lower — a
+ * favorite should usually flavor an example/theme, not redefine the
+ * learning objective.
+ *
+ * IRB compliance: this previously also weighted a "support needs" category
+ * (SUPPORT_NEEDS: 0.4, via SURVEY_WEIGHT_SUPPORT) — removed along with the
+ * survey question and its data; the study is not approved to collect that
+ * information. See computeSurveyPersonalizationScore below, which no longer
+ * accepts a supportNeedsSim input at all.
  */
 export const SURVEY_PERSONALIZATION_WEIGHTS = {
     SKILLS: Number(process.env.SURVEY_WEIGHT_SKILLS || 0.4),
-    SUPPORT_NEEDS: Number(process.env.SURVEY_WEIGHT_SUPPORT || 0.4),
     FAVORITES: Number(process.env.SURVEY_WEIGHT_FAVORITES || 0.2),
 };
 
@@ -58,18 +63,17 @@ export function blendPersonalization(interactionPersonal, surveyPersonalization)
 }
 
 /**
- * Combines the three per-category survey similarities into one
+ * Combines the per-category survey similarities into one
  * survey_personalization score, re-normalizing over whichever categories
  * actually have an embedding (a profile with only "skills" saved isn't
- * diluted by treating missing favorites/support as zero similarity).
+ * diluted by treating missing favorites as zero similarity).
  *
- * @param {{ skillsSim: number|null, supportNeedsSim: number|null, favoritesSim: number|null }} sims
+ * @param {{ skillsSim: number|null, favoritesSim: number|null }} sims
  * @returns {number|null} null if no category had an embedding to compare.
  */
 export function computeSurveyPersonalizationScore(sims) {
     const parts = [
         [SURVEY_PERSONALIZATION_WEIGHTS.SKILLS, sims.skillsSim],
-        [SURVEY_PERSONALIZATION_WEIGHTS.SUPPORT_NEEDS, sims.supportNeedsSim],
         [SURVEY_PERSONALIZATION_WEIGHTS.FAVORITES, sims.favoritesSim],
     ].filter(([, sim]) => typeof sim === 'number' && !Number.isNaN(sim));
 

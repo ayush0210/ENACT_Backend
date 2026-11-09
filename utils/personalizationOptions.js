@@ -19,16 +19,14 @@
 // "Under 1" is age 0, matching the existing child model (see
 // routes/children.js's age validation and ChildInfoModal.tsx's AGES list).
 
-export const PERSONALIZATION_CATEGORIES = ['favorite', 'skill', 'support'];
-
-export const PREFER_NOT_TO_ANSWER_ID = 'support-prefer-not-to-answer';
+export const PERSONALIZATION_CATEGORIES = ['favorite', 'skill'];
 
 export const PERSONALIZATION_REVIEW_INTERVAL_DAYS = 90;
 
 /**
  * @typedef {Object} PersonalizationOption
  * @property {string} id
- * @property {'favorite'|'skill'|'support'} category
+ * @property {'favorite'|'skill'} category
  * @property {string} label
  * @property {number} minAge
  * @property {number} maxAge
@@ -121,18 +119,6 @@ export const PERSONALIZATION_OPTIONS = [
     { id: 'skill-problem-solving', category: 'skill', label: 'Problem-solving', minAge: 5, maxAge: 5, promptValue: 'problem-solving', active: true },
     { id: 'skill-preparing-for-school-routines', category: 'skill', label: 'Preparing for school routines', minAge: 5, maxAge: 5, promptValue: 'preparing for school routines', active: true },
     { id: 'skill-resolving-peer-conflicts', category: 'skill', label: 'Resolving peer conflicts', minAge: 5, maxAge: 5, promptValue: 'resolving peer conflicts', active: true },
-
-    // ---------------- Support needs (not age-scoped) ----------------
-    { id: 'support-aac-device', category: 'support', label: 'Uses an AAC device', minAge: 0, maxAge: 5, promptValue: 'uses an AAC (augmentative and alternative communication) device', active: true },
-    { id: 'support-speech-language', category: 'support', label: 'Speech or language support', minAge: 0, maxAge: 5, promptValue: 'receiving speech or language support', active: true },
-    { id: 'support-hearing-impairment', category: 'support', label: 'Hearing impairment', minAge: 0, maxAge: 5, promptValue: 'a hearing impairment', active: true },
-    { id: 'support-visual-impairment', category: 'support', label: 'Visual impairment', minAge: 0, maxAge: 5, promptValue: 'a visual impairment', active: true },
-    { id: 'support-physical-motor-impairment', category: 'support', label: 'Physical or motor impairment', minAge: 0, maxAge: 5, promptValue: 'a physical or motor impairment', active: true },
-    { id: 'support-sensory-needs', category: 'support', label: 'Sensory support needs', minAge: 0, maxAge: 5, promptValue: 'sensory support needs', active: true },
-    { id: 'support-cognitive-learning-delay', category: 'support', label: 'Cognitive or learning delay', minAge: 0, maxAge: 5, promptValue: 'a cognitive or learning delay', active: true },
-    { id: 'support-autism-related', category: 'support', label: 'Autism-related support', minAge: 0, maxAge: 5, promptValue: 'autism-related support needs', active: true },
-    { id: 'support-other', category: 'support', label: 'Other support need', minAge: 0, maxAge: 5, promptValue: 'another support need', active: true },
-    { id: PREFER_NOT_TO_ANSWER_ID, category: 'support', label: 'Prefer not to answer', minAge: 0, maxAge: 5, promptValue: '', active: true },
 ];
 
 const OPTIONS_BY_ID = new Map(PERSONALIZATION_OPTIONS.map(o => [o.id, o]));
@@ -155,7 +141,7 @@ export function isSupportedChildAge(age) {
  * re-submitting the same selection twice is not a security or data concern.
  *
  * @param {string[]} ids
- * @param {'favorite'|'skill'|'support'} category
+ * @param {'favorite'|'skill'} category
  * @param {number} childAge
  * @returns {{ validIds: string[], errors: Array<{ id: string, reason: string }> }}
  */

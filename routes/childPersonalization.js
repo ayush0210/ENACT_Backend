@@ -62,14 +62,12 @@ router.put('/:childId/personalization', authenticateJWT, async (req, res) => {
     if (childId === null) return;
 
     const payload = req.body || {};
-    const arrayFields = [
-        'favorites',
-        'skillsInProgress',
-        'supportNeeds',
-        'customFavorites',
-        'customSkills',
-        'customSupportNeeds',
-    ];
+    // IRB compliance: "supportNeeds"/"customSupportNeeds" are intentionally
+    // not in this list — they are no longer accepted request payload fields.
+    // An older client that still sends them simply has those fields ignored
+    // (not validated, not read downstream) rather than rejected, so it keeps
+    // working for every other field.
+    const arrayFields = ['favorites', 'skillsInProgress', 'customFavorites', 'customSkills'];
     for (const field of arrayFields) {
         if (payload[field] !== undefined && !Array.isArray(payload[field])) {
             return res.status(400).json({

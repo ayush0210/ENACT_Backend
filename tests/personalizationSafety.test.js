@@ -81,19 +81,19 @@ test('rejects physical/abusive discipline wording', () => {
 });
 
 test('rejects medical diagnosis/treatment requests', () => {
-    const result = approve('support', 'please diagnose my child and prescribe medication');
+    const result = approve('skill', 'please diagnose my child and prescribe medication');
     assert.equal(result.status, 'rejected');
     assert.equal(result.reasonCode, 'medical_advice');
 });
 
 test('rejects an email address as personal information', () => {
-    const result = approve('support', 'contact me at parent@example.com about this');
+    const result = approve('skill', 'contact me at parent@example.com about this');
     assert.equal(result.status, 'rejected');
     assert.equal(result.reasonCode, 'personal_information');
 });
 
 test('rejects a phone number as personal information', () => {
-    const result = approve('support', 'call 555-123-4567 for details');
+    const result = approve('skill', 'call 555-123-4567 for details');
     assert.equal(result.status, 'rejected');
     assert.equal(result.reasonCode, 'personal_information');
 });
@@ -164,11 +164,11 @@ test('regression: rejects bare "Fighting" as a skill-in-progress', () => {
     assert.equal(result.reasonCode, 'violence_or_abuse');
 });
 
-test('regression: rejects an ableist slur submitted as a support need', () => {
+test('regression: rejects an ableist slur submitted as a custom skill/favorite', () => {
     // Previously approved: PROFANITY_HARASSMENT_HATE had no slur coverage
     // beyond generic profanity (its own comment said "add any specific
     // slurs your policy team flags").
-    const result = approve('support', 'retard');
+    const result = approve('skill', 'retard');
     assert.equal(result.status, 'rejected');
     assert.equal(result.reasonCode, 'hate_or_harassment');
 });

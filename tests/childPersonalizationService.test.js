@@ -37,6 +37,14 @@ function createFakePool({ children = [], profiles = [] } = {}) {
         query: async (sql, params = []) => {
             const s = sql.replace(/\s+/g, ' ').trim();
             if (s.startsWith('INSERT INTO child_personalization_profiles')) {
+                // IRB compliance: support_need_ids/custom_support_needs/
+                // support_needs_embedding are positions 4, 7, and 10 in the
+                // real INSERT (see services/childPersonalizationService.js)
+                // — the service always passes '[]'/'[]'/null for these, never
+                // caller-derived values. The fake pool still stores whatever
+                // it's given (mirroring the real columns, which still exist
+                // pending migrations/004_remove_support_needs.sql) so tests
+                // can assert on exactly what the service sends.
                 const [
                     childId, favoriteIds, skillIds, supportNeedIds,
                     customFavorites, customSkills, customSupportNeeds,
@@ -107,10 +115,8 @@ test('an authenticated caregiver can read and update a profile for their own chi
         payload: {
             favorites: ['fav-dinosaurs'],
             skillsInProgress: ['skill-taking-turns'],
-            supportNeeds: [],
             customFavorites: ['loves painting'],
             customSkills: [],
-            customSupportNeeds: [],
         },
     });
 
@@ -140,7 +146,7 @@ test('a caregiver cannot update another caregiver\'s child profile', async () =>
     const result = await service.saveProfile({
         userId: 999,
         childId: 1,
-        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [] },
     });
     assert.equal(result.ok, false);
     assert.equal(result.status, 403);
@@ -172,12 +178,12 @@ test('upsert does not create duplicate profile rows', async () => {
     await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [] },
     });
     const second = await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: ['fav-sports'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-sports'], skillsInProgress: [] },
     });
 
     assert.equal(pool._state.profiles.length, 1);
@@ -191,7 +197,7 @@ test('confirm-current updates only the review timestamp, not saved answers', asy
     const saved = await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-dinosaurs'], skillsInProgress: [] },
     });
     const firstReviewedAt = saved.profile.lastReviewedAt;
 
@@ -220,7 +226,7 @@ test('rejects an unknown/age-inappropriate option id with 400', async () => {
     const result = await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: [], skillsInProgress: ['skill-writing-their-name'], supportNeeds: [] },
+        payload: { favorites: [], skillsInProgress: ['skill-writing-their-name'] },
     });
     assert.equal(result.ok, false);
     assert.equal(result.status, 400);
@@ -237,7 +243,6 @@ test('rejects unsafe custom text with 422 and a neutral field-level message', as
         payload: {
             favorites: [],
             skillsInProgress: [],
-            supportNeeds: [],
             customFavorites: ['cocaine tips'],
         },
     });
@@ -254,7 +259,7 @@ test('"Under 1" (age 0) options work correctly end-to-end', async () => {
     const result = await service.saveProfile({
         userId: 20,
         childId: 2, // age 0
-        payload: { favorites: ['fav-faces'], skillsInProgress: ['skill-tummy-time'], supportNeeds: [] },
+        payload: { favorites: ['fav-faces'], skillsInProgress: ['skill-tummy-time'] },
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.profile.favorites, ['fav-faces']);
@@ -267,14 +272,14 @@ test('rejecting a custom field never persists a row containing the rejected text
     await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: [], skillsInProgress: [], supportNeeds: [], customFavorites: ['cocaine tips'] },
+        payload: { favorites: [], skillsInProgress: [], customFavorites: ['cocaine tips'] },
     });
 
     assert.equal(pool._state.profiles.length, 0);
 });
 
 // --- Scenario 11: safe predefined values persist correctly ---
-test('scenario 11: safe predefined values (Animals, Using a spoon, AAC device) persist together', async () => {
+test('scenario 11: safe predefined values (Animals, Speaking in sentences) persist together', async () => {
     const pool = createFakePool({ children: CHILDREN });
     const service = createChildPersonalizationService(pool, fakeEmbed);
 
@@ -284,13 +289,41 @@ test('scenario 11: safe predefined values (Animals, Using a spoon, AAC device) p
         payload: {
             favorites: ['fav-animals'],
             skillsInProgress: ['skill-speaking-in-sentences'], // age-3 valid skill
-            supportNeeds: ['support-aac-device'],
         },
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.profile.favorites, ['fav-animals']);
     assert.deepEqual(result.profile.skillsInProgress, ['skill-speaking-in-sentences']);
-    assert.deepEqual(result.profile.supportNeeds, ['support-aac-device']);
+});
+
+// --- IRB compliance regression ---
+test('an old client still submitting supportNeeds/customSupportNeeds gets them silently ignored, never persisted or returned', async () => {
+    const pool = createFakePool({ children: CHILDREN });
+    const service = createChildPersonalizationService(pool, fakeEmbed);
+
+    const result = await service.saveProfile({
+        userId: 10,
+        childId: 1,
+        payload: {
+            favorites: ['fav-animals'],
+            skillsInProgress: [],
+            supportNeeds: ['support-aac-device'],
+            customSupportNeeds: ['uses a wheelchair'],
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.profile.favorites, ['fav-animals']);
+    assert.equal('supportNeeds' in result.profile, false);
+    assert.equal('customSupportNeeds' in result.profile, false);
+
+    // The legacy columns (still present pending the approved cleanup
+    // migration) must have been written as empty, not with the submitted
+    // support-needs content.
+    const row = pool._state.profiles.find(p => p.child_id === 1);
+    assert.deepEqual(JSON.parse(row.support_need_ids), []);
+    assert.deepEqual(JSON.parse(row.custom_support_needs), []);
+    assert.equal(row.support_needs_embedding, null);
 });
 
 // --- Scenario 12: safe custom interest persists ---
@@ -301,7 +334,7 @@ test('scenario 12: a safe custom interest ("Toy trains") is normalized, approved
     const result = await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: [], skillsInProgress: [], supportNeeds: [], customFavorites: ['  Toy   trains  '] },
+        payload: { favorites: [], skillsInProgress: [], customFavorites: ['  Toy   trains  '] },
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.profile.customFavorites, ['Toy trains']);
@@ -318,7 +351,6 @@ test('scenario 19: a mixed safe+unsafe submission is rejected atomically — no 
         payload: {
             favorites: ['fav-animals'], // safe canonical selection
             skillsInProgress: [],
-            supportNeeds: [],
             customSkills: ['Fighting'], // unsafe custom text
         },
     });
@@ -340,7 +372,7 @@ test('scenario 7: an all-rejected submission leaves any PRE-EXISTING profile com
     const first = await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: ['fav-animals'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-animals'], skillsInProgress: [] },
     });
     assert.equal(first.ok, true);
 
@@ -350,7 +382,6 @@ test('scenario 7: an all-rejected submission leaves any PRE-EXISTING profile com
         payload: {
             favorites: [],
             skillsInProgress: [],
-            supportNeeds: [],
             customFavorites: ['When he gets beaten'],
         },
     });
@@ -369,7 +400,7 @@ test('regression: confirmCurrent also enforces child ownership', async () => {
     await service.saveProfile({
         userId: 10,
         childId: 1,
-        payload: { favorites: ['fav-animals'], skillsInProgress: [], supportNeeds: [] },
+        payload: { favorites: ['fav-animals'], skillsInProgress: [] },
     });
 
     const result = await service.confirmCurrent({ userId: 999, childId: 1 });

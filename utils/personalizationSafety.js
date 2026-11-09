@@ -25,7 +25,7 @@ import { classifyUnsafeContent } from './parentingGuardrails.js';
 export const PERSONALIZATION_CUSTOM_ANSWER_MAX_LENGTH = 100;
 
 const NEUTRAL_REJECTION_MESSAGE =
-    "This response can't be used for personalization. Please enter a child interest, learning goal, or support need.";
+    "This response can't be used for personalization. Please enter a child interest or learning goal.";
 
 // Maps the shared guardrail's category taxonomy onto the narrower
 // PersonalizationSafetyResult reasonCode union. self_harm and age_out_of_scope
@@ -119,7 +119,7 @@ const collapseWhitespace = value => String(value ?? '').replace(/\s+/g, ' ').tri
 const stripHtml = value => value.replace(/[<>]/g, '');
 
 /**
- * @typedef {{ status: 'approved', normalizedValue: string, category: 'favorite'|'skill'|'support' }
+ * @typedef {{ status: 'approved', normalizedValue: string, category: 'favorite'|'skill' }
  *   | { status: 'needs_review', reasonCode: string }
  *   | { status: 'rejected', reasonCode: 'sexual_content'|'drugs'|'violence_or_abuse'|'medical_advice'|'personal_information'|'hate_or_harassment'|'dangerous_activity'|'outside_scope'|'prompt_injection' }
  * } PersonalizationSafetyResult
@@ -132,7 +132,7 @@ const stripHtml = value => value.replace(/[<>]/g, '');
  * (that's "no answer given," not something to reject) — check with
  * `isBlankCustomAnswer` first and simply omit the field instead.
  *
- * @param {{ category: 'favorite'|'skill'|'support', value: string, childAge: number }} input
+ * @param {{ category: 'favorite'|'skill', value: string, childAge: number }} input
  * @returns {PersonalizationSafetyResult}
  */
 export function validateAndNormalizePersonalizationInput({ category, value, childAge: _childAge }) {
@@ -252,7 +252,7 @@ export function getNeutralRejectionMessage() {
  * without a database.
  *
  * @param {string[]} values
- * @param {'favorite'|'skill'|'support'} category
+ * @param {'favorite'|'skill'} category
  * @param {number} childAge
  * @returns {string[]}
  */

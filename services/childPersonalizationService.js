@@ -25,17 +25,19 @@
 import {
     validateOptionIdsForCategory,
     optionsToPromptValues,
-    PREFER_NOT_TO_ANSWER_ID,
 } from '../utils/personalizationOptions.js';
 import {
     validateAndNormalizePersonalizationInput,
     getNeutralRejectionMessage,
 } from '../utils/personalizationSafety.js';
 
+// IRB compliance: "Support needs" (developmental delays/disabilities) is
+// classified as medical information this study is not approved to collect.
+// customFavorites/customSkills are the only custom-text fields accepted —
+// a customSupportNeeds entry here would re-open that collection path.
 const CUSTOM_FIELD_TO_CATEGORY = {
     customFavorites: 'favorite',
     customSkills: 'skill',
-    customSupportNeeds: 'support',
 };
 
 function isBlank(value) {
@@ -58,26 +60,27 @@ function emptyProfile(childId) {
         childId,
         favorites: [],
         skillsInProgress: [],
-        supportNeeds: [],
         customFavorites: [],
         customSkills: [],
-        customSupportNeeds: [],
         lastReviewedAt: null,
         createdAt: null,
         updatedAt: null,
     };
 }
 
+// IRB compliance: the API response never includes supportNeeds/
+// customSupportNeeds, even if a legacy row still has real values in its
+// support_need_ids/custom_support_needs columns (pending the cleanup script
+// in migrations/004_remove_support_needs.sql) — this mapping is the
+// boundary that keeps that legacy data from ever reaching a client again.
 function mapRowToProfile(childId, row) {
     if (!row) return emptyProfile(childId);
     return {
         childId,
         favorites: parseJsonArrayColumn(row.favorite_ids),
         skillsInProgress: parseJsonArrayColumn(row.skill_ids),
-        supportNeeds: parseJsonArrayColumn(row.support_need_ids),
         customFavorites: parseJsonArrayColumn(row.custom_favorites),
         customSkills: parseJsonArrayColumn(row.custom_skills),
-        customSupportNeeds: parseJsonArrayColumn(row.custom_support_needs),
         lastReviewedAt: row.last_reviewed_at
             ? new Date(row.last_reviewed_at).toISOString()
             : null,
@@ -122,28 +125,22 @@ export function createChildPersonalizationService(dbPool, embedFn) {
     // registry for the child's *current* age (age is a hard constraint here,
     // not a similarity boost — a stale selection from before a birthday
     // simply fails validation rather than being silently kept).
+    //
+    // IRB compliance: "supportNeeds" is intentionally not read from payload
+    // here at all — even an older client that still submits it gets the
+    // field silently ignored, never validated, embedded, or persisted.
     function validateCanonicalSelections(payload, childAge) {
         const favorites = validateOptionIdsForCategory(payload.favorites, 'favorite', childAge);
         const skills = validateOptionIdsForCategory(payload.skillsInProgress, 'skill', childAge);
-        const support = validateOptionIdsForCategory(payload.supportNeeds, 'support', childAge);
 
         const allErrors = [
             ...favorites.errors.map(e => ({ ...e, field: 'favorites' })),
             ...skills.errors.map(e => ({ ...e, field: 'skillsInProgress' })),
-            ...support.errors.map(e => ({ ...e, field: 'supportNeeds' })),
         ];
-
-        // "Prefer not to answer" clears conflicting support-need selections —
-        // enforced server-side too, not just in the UI (defense in depth).
-        let supportIds = support.validIds;
-        if (supportIds.includes(PREFER_NOT_TO_ANSWER_ID)) {
-            supportIds = [PREFER_NOT_TO_ANSWER_ID];
-        }
 
         return {
             favoriteIds: favorites.validIds,
             skillIds: skills.validIds,
-            supportNeedIds: supportIds,
             errors: allErrors,
         };
     }
@@ -152,7 +149,7 @@ export function createChildPersonalizationService(dbPool, embedFn) {
     // Returns the first rejection found (each UI field maps to at most one
     // rejection at a time in practice), plus the approved arrays.
     function validateCustomText(payload, childAge) {
-        const approved = { customFavorites: [], customSkills: [], customSupportNeeds: [] };
+        const approved = { customFavorites: [], customSkills: [] };
 
         for (const [field, category] of Object.entries(CUSTOM_FIELD_TO_CATEGORY)) {
             const values = Array.isArray(payload[field]) ? payload[field] : [];
@@ -201,7 +198,7 @@ export function createChildPersonalizationService(dbPool, embedFn) {
 
         const childAge = Number.isInteger(child.age) ? child.age : 0;
 
-        const { favoriteIds, skillIds, supportNeedIds, errors } = validateCanonicalSelections(
+        const { favoriteIds, skillIds, errors } = validateCanonicalSelections(
             payload || {},
             childAge,
         );
@@ -226,14 +223,23 @@ export function createChildPersonalizationService(dbPool, embedFn) {
             };
         }
 
-        const { customFavorites, customSkills, customSupportNeeds } = customResult.approved;
+        const { customFavorites, customSkills } = customResult.approved;
 
-        const [favoritesEmbedding, skillsEmbedding, supportNeedsEmbedding] = await Promise.all([
+        const [favoritesEmbedding, skillsEmbedding] = await Promise.all([
             computeCategoryEmbedding(favoriteIds, customFavorites),
             computeCategoryEmbedding(skillIds, customSkills),
-            computeCategoryEmbedding(supportNeedIds, customSupportNeeds),
         ]);
 
+        // IRB compliance note: support_need_ids/custom_support_needs/
+        // support_needs_embedding below are ALWAYS written as empty/null,
+        // never derived from `payload` (that field is no longer read at
+        // all — see validateCanonicalSelections/CUSTOM_FIELD_TO_CATEGORY
+        // above). The columns themselves still exist pending approval of
+        // migrations/004_remove_support_needs.sql (dropping a column is a
+        // destructive op this change does not run automatically); hardcoding
+        // them here means no new support-needs content can ever be
+        // persisted regardless of what an old or new client submits, without
+        // requiring that migration to land first.
         const connection = await dbPool.getConnection();
         try {
             await connection.beginTransaction();
@@ -259,13 +265,13 @@ export function createChildPersonalizationService(dbPool, embedFn) {
                     childId,
                     JSON.stringify(favoriteIds),
                     JSON.stringify(skillIds),
-                    JSON.stringify(supportNeedIds),
+                    '[]',
                     JSON.stringify(customFavorites),
                     JSON.stringify(customSkills),
-                    JSON.stringify(customSupportNeeds),
+                    '[]',
                     favoritesEmbedding ? JSON.stringify(favoritesEmbedding) : null,
                     skillsEmbedding ? JSON.stringify(skillsEmbedding) : null,
-                    supportNeedsEmbedding ? JSON.stringify(supportNeedsEmbedding) : null,
+                    null,
                 ],
             );
             await connection.commit();
