@@ -5,6 +5,7 @@ import pool from '../config/db.js';
 import { authenticateJWT } from './middleware.js';
 import express from 'express';
 import nodemailer from 'nodemailer';
+import { wasRecipientAccepted, buildPasswordResetEmailLog } from '../utils/passwordResetEmail.js';
 
 const router = express.Router();
 
@@ -481,6 +482,16 @@ const requestPasswordReset = async (req, res) => {
       </div>
     `;
 
+        const text = `You requested a password reset for your ENACT account.
+
+Copy and paste this code in the app to reset your password:
+
+${resetToken}
+
+This code will expire in 1 hour.
+If you didn't request this, please ignore this email.
+For security, this code will only work once.`;
+
         // Create Gmail transporter
         const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
@@ -492,12 +503,34 @@ const requestPasswordReset = async (req, res) => {
             },
         });
 
-        await transporter.sendMail({
+        const correlationId = crypto.randomBytes(6).toString('hex');
+        const sendStart = Date.now();
+        const info = await transporter.sendMail({
             from: `"ENACT" <${process.env.EMAIL_USER}>`,
             to: email,
             subject: 'Password Reset Request',
+            text,
             html,
         });
+        const durationMs = Date.now() - sendStart;
+
+        console.log(
+            '[password-reset-email] submitted',
+            buildPasswordResetEmailLog(correlationId, info, durationMs),
+        );
+
+        if (!wasRecipientAccepted(info, email)) {
+            console.warn('[password-reset-email] recipient not accepted', {
+                correlationId,
+            });
+            return res.status(502).json({
+                message: 'Error processing password reset request',
+                error:
+                    process.env.NODE_ENV === 'development'
+                        ? 'Recipient not accepted by mail server'
+                        : undefined,
+            });
+        }
 
         return res.status(200).json({
             message: 'Password reset instructions sent to email',
